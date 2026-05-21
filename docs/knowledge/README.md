@@ -10,16 +10,29 @@ Intended sources for the first pass:
 
 ## Current contents
 
-| File | What's in it |
-|---|---|
-| `hooks-and-sdk.md` | Everything about hooks (PreToolUse, PostToolUse, and the other 7 hook types), how to write them, exit-code semantics, the `$PWD` absolute-path pattern, worked examples, and an overview of the Claude Agent SDK with package install + minimal example. Ends with implications for `self-improving-claude`. |
-| `slash-commands-and-claude-md.md` | How custom slash commands work (`.claude/commands/<name>.md`, `$ARGUMENTS`), and how `CLAUDE.md` provides persistent project memory, including `@file` mentions. Ends with implications for our design. |
+| File | What's in it | Confidence |
+|---|---|---|
+| `hooks-and-sdk.md` | All 9 hook types, configuration, `$PWD` absolute-path pattern, worked `.env`-blocking example, TypeScript-check and sub-Claude review patterns, Agent SDK install + minimal example. Closes with design implications. | **High** — direct from course material |
+| `slash-commands-and-claude-md.md` | Custom slash commands (`.claude/commands/<name>.md`, `$ARGUMENTS`) and `CLAUDE.md` persistent memory including `@`-mentions. Closes with design implications. | **High** — direct from course material |
+| `tools-reference.md` | The `tool_input` shape per built-in tool (Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, Task, TodoWrite, etc.), the standard stdin envelope, common matcher patterns. The lookup table every generated hook needs. | **High** for shapes shown directly in course examples; **medium** for the others |
+| `settings-and-permissions.md` | The rest of `settings.json` beyond hooks: the `permissions` system (allow/deny/ask rules), `env`, defensive write strategy for our plugin, when to prefer `permissions.deny` over a hook. | **Medium** — broadly-documented Claude Code basics, but specific edge cases worth verifying against official docs |
+| `plugins-and-skills.md` | Working hypothesis for plugin and skill anatomy, the proposed file layout for `self-improving-claude`, and an explicit list of gaps where course material would help. | **Low-medium** — biggest knowledge gap, marked accordingly |
 
-## What to add next (when relevant)
+## Confidence convention
 
-- Official Claude Code docs links (canonical reference URLs)
-- Real-world example plugins from the community
-- Anti-patterns / pitfalls observed in the wild
-- Patterns specific to our domain (e.g. testing hook-generation, sandboxing freeform scripts)
+When a section is based on direct course excerpts, it's marked **(course material)**. When it's compiled from general Claude Code knowledge, it's flagged so we know to verify before depending on it. Sections that need course material to be authoritative are marked with **🔍 Gap to fill**.
 
-This material will eventually be distilled into the reference doc that ships *inside* the plugin and grounds the LLM when it drafts hooks.
+## What to add next
+
+Highest leverage:
+
+- **Plugin section of the Anthropic *Claude Code* course** (manifest format, install/uninstall, hook registration semantics, marketplace flow). Fills the biggest gap — see `plugins-and-skills.md` for specific questions.
+- **Skill section of the course** (frontmatter schema, activation rules, references convention).
+
+Lower priority:
+
+- Real-world plugin examples (community / first-party).
+- Anti-patterns / pitfalls observed in the wild.
+- Official Claude Code docs URLs as a canonical link list.
+
+This material will eventually be distilled into the `references/` directory inside the plugin so the SKILL.md can `@`-mention it at runtime.
