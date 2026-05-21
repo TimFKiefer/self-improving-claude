@@ -157,7 +157,58 @@ If a repo already has an `AGENTS.md` for another tool, you don't need to duplica
 
 ---
 
-## 7. Implications for `self-improving-claude`
+## 7. Other Claude Code surfaces worth knowing
+
+Three small features the API course flagged that we should be aware of when designing the plugin:
+
+### `#` — quick memory add
+
+Typing `# <some instruction>` at any time during a Claude Code session prompts the user to add that line to `CLAUDE.md` (project, local, or user scope). It's the fastest way to capture a rule mid-conversation.
+
+**Why it matters for us:** for soft-preference suggestions the plugin makes (the "this should be a `CLAUDE.md` note, not a hook" case), we could simply *tell the user* the exact `#`-formatted command to type. Cleaner than writing to `CLAUDE.md` ourselves.
+
+### `/clear` — reset context
+
+`/clear` wipes the current conversation history and resets context. The course flags this as the standard way to start fresh inside a long session without restarting the CLI.
+
+**Why it matters for us:** in v1, `/improve` ends by instructing the user to ESC-ESC-rewind. `/clear` is an alternative cleanup option — coarser (loses *all* history, not just the `/improve` detour) but always available. Worth mentioning in the rewind-instruction message as a fallback.
+
+### MCP integration in Claude Code
+
+Claude Code has an **MCP client built in**, so users can connect MCP servers to extend Claude's tool set. Registration is one command:
+
+```
+claude mcp add <server-name> <command-to-start-server>
+```
+
+Real-world ecosystem includes things like `sentry-mcp` (pull error context), `playwright-mcp` (browser automation), `slack-mcp` (notifications), etc.
+
+**Why it matters for us (and why it's mostly out of scope for v1):**
+
+- **We don't need to be an MCP server.** Our delivery is a Claude Code plugin (commands + skill + hook), not an external service. MCP would be a different shape.
+- **Generated hooks could integrate with MCP tools.** A `PostToolUse` hook could, for instance, log significant events to Slack via `slack-mcp`. Flag for later; not v1.
+- **Users with MCP servers installed get a richer telemetry signal.** The bundled telemetry hook should log MCP-tool calls just like built-in tools — matcher `*` already covers this; we just need to be tolerant of unknown `tool_name` values in our analyzer.
+
+---
+
+## 8. Recommended Claude-Code-with-projects workflow
+
+The course's most actionable workflow recommendation, applicable both to *how users should use the plugin* and to *how the SKILL itself should orchestrate*:
+
+> **Feed context → Plan → Implement.** Before asking Claude to do something complex, point it at the relevant files first. Then ask for a plan (no code yet). Then ask for implementation.
+
+A test-driven variant adds two extra steps:
+
+> Feed context → Ask Claude to brainstorm test cases → Implement tests → Ask Claude to write code that passes them.
+
+**Why it matters for us:**
+
+- This is exactly the shape `/improve` should follow internally: *inspect environment* (feed context) → *propose hooks* (plan) → *write files* (implement).
+- We should also document this as the **recommended way to use `/improve`** in the README: don't run `/improve` cold; first surface the bug by working on something, then `/improve` while the context is hot.
+
+---
+
+## 9. Implications for `self-improving-claude`
 
 What the slash-command + `CLAUDE.md` system gives us, distilled into design implications:
 
