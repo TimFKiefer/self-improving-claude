@@ -1,138 +1,91 @@
 # self-improving-claude
 
-> A Claude Code plugin that turns the bugs you just saw into the hooks that prevent the next ones — using the conversation you're already in.
+> A Claude Code plugin that turns the bugs you just saw into the hooks that prevent the next ones.
 
-**Status:** 🌱 Design locked, implementation not started.
-
----
-
-## The Big Idea
-
-You're working with Claude Code. It does something annoying — runs the wrong test command, edits a file it shouldn't, forgets a migration step. Today, you sigh, fix it manually, and hope it doesn't happen again.
-
-**With this plugin, you type `/improve` *right then*.** While the context of what just went wrong is still in the chat, Claude reviews what happened, proposes hooks that would have caught it, walks you through approving each one, installs them — and then the conversation rewinds to the moment you typed `/improve`. The fix sticks; the chat noise doesn't.
-
-It's a Claude Code add-on that helps Claude Code get better at *your* project, the moment you notice it isn't.
+**Status:** v0.1.0 — `/improve-init` (proactive scan) works end-to-end. `/improve` (reactive) is v0.2.
 
 ---
 
-## Two Commands
+## What it does
 
-| Command | When to use it | How it works |
-|---|---|---|
-| **`/improve`** | Reactive — "I just saw a bug / pattern I don't want again." | Runs inside the current session. Uses the live chat context (the bug is right there in scrollback). Proposes targeted hooks, gets per-hook approval, installs, then asks you to ESC-ESC-rewind. |
-| **`/improve-init`** | Proactive — first-time setup, or periodic full sweep. | Reads project code + docs + accumulated telemetry log. Proposes a baseline set of guardrails. Same per-hook approval flow. |
+You're working in Claude Code. Claude does something you don't want again — runs the wrong test command, edits a file it shouldn't, forgets a migration step. You type `/improve-init`. The plugin reviews your project, your past session transcripts, and a bundled telemetry log, then proposes a set of guardrails (hooks, `permissions.deny` rules, or `CLAUDE.md` notes) with **per-proposal explicit approval**. Approved guardrails are written into your project's `.claude/` directory. Restart Claude Code and they take effect.
 
-Both commands accept free-text args:
-- `/improve "add a rule that prevents X"` — directive
-- `/improve "the foo-hook just blocked something legit"` — feedback signal for next run
+It's a Claude Code add-on that makes Claude Code measurably better at *your* project, the moment you notice it isn't.
 
----
+## Install (local, from this repo)
 
-## Why Hooks (And Not Just More Prompt)
+1. Clone or download this repo to a stable location, e.g. `~/code/self-improving-claude`.
+2. Symlink (or copy) it into Claude Code's plugins directory:
 
-Hooks are deterministic. A model can forget a rule from a system prompt — a `PreToolUse` hook cannot. By converting learned lessons into hooks, we move project knowledge from the prompt (fragile, expensive, optional) to the harness (cheap, mandatory, fast).
+   ```bash
+   ln -s ~/code/self-improving-claude ~/.claude/plugins/cache/self-improving-claude
+   ```
 
-Skills tell Claude *how* to do something. Hooks enforce *what* must or must not happen. This plugin uses the model to *generate* those deterministic guardrails, tuned to one specific project.
+   The exact path may differ slightly on your machine — the rule is that the plugin needs to live somewhere Claude Code scans for plugins. Check `~/.claude/plugins/` to find the cache root used on your install.
 
----
+3. Restart Claude Code (`exit`, then `claude`). On the next session start, the bundled telemetry hook is registered and the `/improve-init` command is available.
 
-## How It Works
+## Usage
+
+### `/improve-init`
+
+Run inside any project you'd like to harden. The plugin will:
+
+1. Read your project's `CLAUDE.md`, manifest files, and a sampled set of source files.
+2. Read recent past-session transcripts and the bundled telemetry log (if present).
+3. Identify up to 5 candidate guardrails.
+4. For each candidate, propose the lightest viable form (`permissions.deny` rule, prompt-based hook, command hook, or `CLAUDE.md` note).
+5. Walk you through them one at a time — you approve, reject, or edit each.
+6. Write approved files to your project's `.claude/hooks/` and merge entries into `.claude/settings.json`.
+7. Tell you to restart Claude Code so the new hooks load.
+
+Optional scoped invocation:
 
 ```
-   /improve  (you just saw a bug)              /improve-init  (first time / full pass)
-        │                                              │
-        │  uses current chat context                   │  reads project files
-        │  as primary signal                           │  + ~/.claude/projects transcripts
-        │                                              │  + bundled telemetry log
-        ▼                                              ▼
-   ┌────────────────────────────────────────────────────────┐
-   │  Skill running in current Claude Code session          │
-   │  (no separate API key — uses your subscription)        │
-   │                                                        │
-   │  • Identifies candidate problems                       │
-   │  • Drafts freeform hook scripts                        │
-   │  • Grounded in Anthropic's Claude Code course material │
-   └────────────────────────────────────────────────────────┘
-        │
-        ▼
-   Per-hook interactive review:
-   ─ what problem this hook solves
-   ─ full hook script (diff)
-   ─ which event it binds to (PreToolUse, etc.)
-   ─ approve / reject / edit
-        │
-        ▼
-   Writes:
-   ─ .claude/settings.json (hook registration)
-   ─ .claude/hooks/*.sh|*.py (the actual scripts)
-        │
-        ▼
-   "Done. Press ESC twice and select the message
-    where you ran /improve to clean up this conversation."
+/improve-init "focus on the queries directory"
 ```
 
-A passive **telemetry hook** ships with the plugin. On each tool use it appends `{tool, timestamp, summarized_args, outcome}` to a local log. Secrets aren't captured (args are summarized, not raw). `/improve-init` mines this log to find patterns; `/improve` doesn't strictly need it.
+### Telemetry hook
 
----
+The plugin installs one always-on hook — `PostToolUse: "*"` — that logs summarized tool usage to `.claude/self-improving-claude/telemetry.jsonl` inside each project where Claude Code is active. Logged fields per call:
 
-## Trust Model
+```jsonl
+{"ts": "2026-05-22T14:33:01Z", "tool": "Bash", "args_summary": "pnpm test", "outcome": {"exit_code": 1, "stderr_head": "ENOENT..."}}
+```
 
-Generated hooks are **freeform LLM-written code**, which means each one is arbitrary. We compensate with strict review UX:
+**Redaction is strict** (tested in `scripts/tests/test_telemetry.py`):
 
-- **No hook is installed without your approval.** Per-hook diff + y/n.
-- **Each proposed hook explains itself** — what bug it prevents, why it fires, when.
-- **Easy to remove.** The plugin's hooks live in `.claude/hooks/` with descriptive filenames so you can delete or edit them by hand later.
+- File `Read`/`Write`/`Edit` log only the path, never content.
+- `Bash` logs the first 80 chars of the command and (only on non-zero exit) the first 200 chars of stderr.
+- `Grep`/`Glob` redact patterns that match known secret prefixes (`API_KEY`, `SECRET`, `TOKEN`, etc.).
+- `WebFetch` logs only the URL host — never query strings.
+- `Task`/`TodoWrite` log type/counts only — never the prompt or todo content.
 
----
+The script silently no-ops on any unexpected error — it must never break Claude Code's tool execution.
 
-## Knowledge Source
+If you want to disable telemetry entirely, remove the `PostToolUse` entry whose `name` is `self-improving-claude/telemetry` from your `.claude/settings.json` (or just don't enable the plugin).
 
-Hook suggestions are grounded in Anthropic's public **Claude Code** course material — the canonical patterns for what hooks exist, what they're good at, and how to write them idiomatically. The plugin bundles a curated reference; the model leans on it when drafting hooks.
+## What's installed where
 
----
+| Location | What |
+|---|---|
+| Plugin directory (read-only) | `.claude-plugin/plugin.json`, skills, bundled telemetry script. Plugin updates touch only this. |
+| Your project's `.claude/hooks/` | Generated hook scripts (you own these). |
+| Your project's `.claude/settings.json` | Plugin-added entries carry `"name": "self-improving-claude/<slug>"` so you can find/edit/remove them. |
+| Your project's `.claude/self-improving-claude/telemetry.jsonl` | The redacted telemetry log. |
 
-## Architecture Snapshot
+## Roadmap
 
-- **Form factor:** Claude Code plugin
-- **Slash commands:** `/improve`, `/improve-init`
-- **Bundled assets:** the skill that drives the flow, the telemetry hook, a reference doc distilling the Claude Code course knowledge
-- **Runtime:** entirely in the user's existing Claude Code session — uses their subscription, their model, their context
-- **Side effects on user's project:** writes to `.claude/settings.json` and creates files under `.claude/hooks/`
+- **v0.1** (current) — `/improve-init` proactive scan, per-proposal approval, bundled telemetry hook.
+- **v0.2** — `/improve` reactive mode (uses current chat as primary input); `evals/` harness with code + model graders; generated hooks default to `"type": "prompt"` where the event supports it.
+- **v0.3+** — feedback channel (`/improve "the foo-hook blocked something legit"`), formal conflict UX, more eval entries.
 
----
+## Design docs
 
-## Status — Locked Decisions
-
-✅ Name: `self-improving-claude`
-✅ Form factor: Claude Code plugin
-✅ Slash commands: `/improve` (in-context, reactive) and `/improve-init` (full project pass, proactive)
-✅ Both accept free-text args for feedback and directives
-✅ Inputs: current chat (for `/improve`) + project code + session transcripts + telemetry log (for `/improve-init`)
-✅ Hook generation: freeform LLM-written, grounded in Claude Code course material
-✅ Review: per-hook interactive diff + approval
-✅ Trust: nothing installs without explicit consent; hooks live as readable files
-✅ Telemetry: moderate (tool + summarized args + outcome) to a local log
-✅ Iteration: re-run-driven, with feedback channel via command args
-✅ Cleanup: skill ends by prompting user to ESC-ESC-rewind the chat detour
-
-## Status — Still TBD
-
-- License (likely MIT)
-- Exact format of the telemetry log
-- Plugin manifest specifics & install command
-- How the Claude Code course knowledge is distilled into the bundled reference
-
-These will be worked out in the design spec and implementation plan.
-
----
+- `docs/superpowers/specs/2026-05-22-self-improving-claude-design.md` — full design spec.
+- `docs/knowledge/` — distilled Claude Code course material grounding the design.
+- `docs/superpowers/plans/2026-05-22-self-improving-claude-v0.1.md` — the implementation plan for this version.
 
 ## License
 
-TBD (likely MIT).
-
----
-
-## Contributing
-
-Not open for contributions yet — design phase only.
+MIT. See `LICENSE`.
