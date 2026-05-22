@@ -39,13 +39,20 @@ Respond with a JSON object exactly matching this schema:
 Output ONLY the JSON. No prose before or after."""
 
 
-_FENCE_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
+_FENCE_OPEN_RE = re.compile(r"^```(?:json|JSON)?\s*\n?")
+_FENCE_CLOSE_RE = re.compile(r"\n?```\s*$")
 
 
 def _extract_json(text: str) -> str:
-    """Strip ```json``` fences if present; otherwise return text unchanged."""
-    m = _FENCE_RE.match(text.strip())
-    return m.group(1) if m else text
+    """Strip ```json``` fences if present (open and close independently).
+
+    Tolerates outputs that are missing the closing fence — common when a
+    smaller local model forgets to close its fence at the token limit.
+    """
+    text = text.strip()
+    text = _FENCE_OPEN_RE.sub("", text)
+    text = _FENCE_CLOSE_RE.sub("", text)
+    return text
 
 
 def grade_model(*, proposal: dict, planted_problem: str, client) -> dict:

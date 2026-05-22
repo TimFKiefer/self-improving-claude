@@ -25,7 +25,8 @@ PROMPT_TEMPLATE_PATH = EVALS_DIR / "prompt_template.md"
 
 ORCHESTRATOR_MODEL = "claude-haiku-4-5-20251001"
 
-_FENCE_RE = re.compile(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
+_FENCE_OPEN_RE = re.compile(r"^```(?:json|JSON)?\s*\n?")
+_FENCE_CLOSE_RE = re.compile(r"\n?```\s*$")
 
 
 def _read_ref(name: str) -> str:
@@ -81,11 +82,14 @@ def assemble_prompt(*, mode: str, user_directive: str, fixture: Fixture) -> str:
 
 
 def parse_proposals(text: str) -> list[dict]:
-    """Extract proposals from the model's response. Return empty list on parse failure."""
+    """Extract proposals from the model's response. Return empty list on parse failure.
+
+    Strips ```json``` fences (open and close independently — small local models
+    sometimes forget to close their fence at the token limit).
+    """
     text = text.strip()
-    m = _FENCE_RE.match(text)
-    if m:
-        text = m.group(1)
+    text = _FENCE_OPEN_RE.sub("", text)
+    text = _FENCE_CLOSE_RE.sub("", text)
     try:
         obj = json.loads(text)
     except json.JSONDecodeError:
@@ -154,12 +158,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--entry", help="run only one entry by id")
     args = parser.parse_args(argv)
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("ANTHROPIC_API_KEY not set", file=sys.stderr)
+    backend = os.environ.get("EVAL_BACKEND", "ollama").lower()
+    if backend == "anthropic":
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            print("ANTHROPIC_API_KEY not set (EVAL_BACKEND=anthropic)", file=sys.stderr)
+            return 2
+        from anthropic import Anthropic  # local import — only needed for this backend
+        client = Anthropic()
+        model_label = ORCHESTRATOR_MODEL
+    elif backend == "ollama":
+        from evals.client_ollama import OllamaClient, DEFAULT_MODEL
+        client = OllamaClient()
+        model_label = f"ollama:{DEFAULT_MODEL}"
+    else:
+        print(f"Unknown EVAL_BACKEND={backend!r} (expected: ollama|anthropic)", file=sys.stderr)
         return 2
-
-    from anthropic import Anthropic  # local import so tests don't need the package
-    client = Anthropic()
 
     entries = load_dataset()
     if args.entry:
@@ -167,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
         if not entries:
             print(f"No entry with id={args.entry}", file=sys.stderr)
             return 2
+
+    print(f"Backend: {model_label}", file=sys.stderr)
 
     per_entry_results = []
     for entry in entries:
@@ -176,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
     agg = _aggregate(per_entry_results)
     output = {
         "date": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "model": ORCHESTRATOR_MODEL,
+        "model": model_label,
         "results": per_entry_results,
         "summary": agg,
     }
