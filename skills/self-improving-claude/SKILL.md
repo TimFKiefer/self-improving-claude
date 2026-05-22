@@ -15,6 +15,7 @@ You are the orchestrator behind `/improve` and `/improve-init`. Your job is to c
 <recent_chat>{last N messages — reactive mode only}</recent_chat>
 <project_snapshot>{CLAUDE.md, package.json, README, sampled source — proactive mode only}</project_snapshot>
 <telemetry_excerpt>{relevant rows from .claude/self-improving-claude/telemetry.jsonl — proactive primary, reactive supplemental}</telemetry_excerpt>
+<transcript_excerpt>{sampled rows from ~/.claude/projects/<project>/*.jsonl past-session transcripts — proactive only, may be empty}</transcript_excerpt>
 <existing_hooks>{current contents of .claude/settings.json `hooks` block}</existing_hooks>
 <existing_permissions>{current contents of .claude/settings.json `permissions` block}</existing_permissions>
 

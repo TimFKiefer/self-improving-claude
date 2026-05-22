@@ -25,6 +25,8 @@ Cap total size around 5–8 KB. Excerpt, don't paste whole files when they're la
 
 **`<telemetry_excerpt>`** — the most recent ~200 rows from `.claude/self-improving-claude/telemetry.jsonl` if it exists. If the file is missing or empty, pass empty and note that the user hasn't accumulated telemetry yet — the orchestrator should mention this in close-out.
 
+**`<transcript_excerpt>`** — past-session transcripts for this project, found at `~/.claude/projects/<project-path-with-slashes-as-dashes>/*.jsonl`. Each `.jsonl` file is one prior Claude Code session; rows include tool calls and outcomes. Use `Glob` to list available sessions, then sample ~30 behaviorally interesting rows total across the 2–3 most recent sessions (prefer non-zero exits, repeated edits to the same file, repeated tool patterns). If the directory is missing or empty, pass empty — the orchestrator handles the absent-signal case in close-out.
+
 **`<existing_hooks>`** — the `hooks` block from `.claude/settings.json` (parse and serialize the relevant slice; empty `{}` if file missing).
 
 **`<existing_permissions>`** — the `permissions` block from `.claude/settings.json` (empty `{}` if file missing).

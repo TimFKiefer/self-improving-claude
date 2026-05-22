@@ -12,18 +12,40 @@ You're working in Claude Code. Claude does something you don't want again — ru
 
 It's a Claude Code add-on that makes Claude Code measurably better at *your* project, the moment you notice it isn't.
 
-## Install (local, from this repo)
+## Install
 
-1. Clone or download this repo to a stable location, e.g. `~/code/self-improving-claude`.
-2. Symlink (or copy) it into Claude Code's plugins directory:
+### One-session use (recommended for v0.1)
 
-   ```bash
-   ln -s ~/code/self-improving-claude ~/.claude/plugins/cache/self-improving-claude
-   ```
+Clone the repo, then start Claude Code with the plugin loaded for the current session:
 
-   The exact path may differ slightly on your machine — the rule is that the plugin needs to live somewhere Claude Code scans for plugins. Check `~/.claude/plugins/` to find the cache root used on your install.
+```bash
+git clone <this-repo> ~/code/self-improving-claude
+claude --plugin-dir ~/code/self-improving-claude
+```
 
-3. Restart Claude Code (`exit`, then `claude`). On the next session start, the bundled telemetry hook is registered and the `/improve-init` command is available.
+That's it. The `/improve-init` command is available immediately and the bundled telemetry hook runs for every tool call in this session. No registration, no symlinks, no marketplace setup.
+
+Optional: validate the plugin manifest first:
+
+```bash
+claude plugin validate ~/code/self-improving-claude
+# → ✔ Validation passed
+```
+
+### Per-session forever (cheapest persistent setup)
+
+Wrap the flag in a shell alias so every `claude` invocation loads the plugin:
+
+```bash
+echo 'alias claude="command claude --plugin-dir ~/code/self-improving-claude"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+(Use `~/.bashrc` for bash.)
+
+### Permanent install via marketplace
+
+Coming in a later release — requires the plugin to live in a `plugins/<name>/` subdirectory of a marketplace root, which is a structural change deferred until publishing to GitHub.
 
 ## Usage
 
