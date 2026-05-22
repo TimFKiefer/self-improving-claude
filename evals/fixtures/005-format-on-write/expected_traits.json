@@ -1,0 +1,6 @@
+{
+  "form": "command-hook",
+  "event": "PostToolUse",
+  "matcher": "Write|Edit|MultiEdit",
+  "rationale_must_mention": ["ruff", "format"]
+}

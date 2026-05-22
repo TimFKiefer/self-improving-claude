@@ -14,6 +14,56 @@
         "allows_command": "pnpm test:ci",
         "rationale_must_mention": ["pnpm test:ci", "watcher"]
       }
+    },
+    {
+      "id": "002-block-env-reads",
+      "trigger": "improve-init",
+      "user_args": "block reads of .env files",
+      "fixture": "fixtures/002-block-env-reads",
+      "planted_problem": "Claude has been reading .env and .env.local during normal work; user wants these blocked uniformly across Read/Grep/Glob.",
+      "expected_hook_traits": {
+        "form": "permissions.deny",
+        "rule_pattern": "Read(**/.env)",
+        "rationale_must_mention": [".env"]
+      }
+    },
+    {
+      "id": "003-prisma-generated-protection",
+      "trigger": "improve-init",
+      "user_args": "",
+      "fixture": "fixtures/003-prisma-generated-protection",
+      "planted_problem": "Claude edits src/generated/prisma/* (auto-generated client) and writes to prisma/dev.db (SQLite binary). CLAUDE.md forbids both but no enforcement exists.",
+      "expected_hook_traits": {
+        "form": "permissions.deny",
+        "rule_pattern": "Edit(src/generated/prisma/**)",
+        "rationale_must_mention": ["prisma", "generated"]
+      }
+    },
+    {
+      "id": "004-recursion-prevention",
+      "trigger": "improve",
+      "user_args": "add a guardrail so you don't introduce unbounded recursion again",
+      "fixture": "fixtures/004-recursion-prevention",
+      "planted_problem": "Claude refactored walk_tree from iterative to recursive without a depth bound, causing RecursionError on a 2000-leaf input. User wants a project-wide guardrail against introducing recursive helpers.",
+      "expected_hook_traits": {
+        "form": "prompt-hook",
+        "event": "PreToolUse",
+        "matcher_must_include": ["Edit", "Write"],
+        "rationale_must_mention": ["recursion"]
+      }
+    },
+    {
+      "id": "005-format-on-write",
+      "trigger": "improve-init",
+      "user_args": "",
+      "fixture": "fixtures/005-format-on-write",
+      "planted_problem": "Edits to .py files aren't auto-formatted; ruff check flags them after the fact. CLAUDE.md says `ruff format` is the formatter.",
+      "expected_hook_traits": {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Write|Edit|MultiEdit",
+        "rationale_must_mention": ["ruff", "format"]
+      }
     }
   ]
 }

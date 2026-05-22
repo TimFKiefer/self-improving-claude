@@ -1,0 +1,5 @@
+{
+  "form": "permissions.deny",
+  "rule_pattern": "Edit(src/generated/prisma/**)",
+  "rationale_must_mention": ["prisma", "generated"]
+}

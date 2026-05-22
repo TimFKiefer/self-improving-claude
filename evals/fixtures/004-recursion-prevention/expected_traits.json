@@ -1,0 +1,6 @@
+{
+  "form": "prompt-hook",
+  "event": "PreToolUse",
+  "matcher_must_include": ["Edit", "Write"],
+  "rationale_must_mention": ["recursion"]
+}
