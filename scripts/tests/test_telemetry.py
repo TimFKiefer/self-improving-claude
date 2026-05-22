@@ -162,7 +162,7 @@ def test_unknown_tool_logs_name_and_ts_only(tmp_path):
     payload = {"tool_name": "SomeMcpTool", "tool_input": {"anything": "goes here"}}
     row = run_telemetry(payload, tmp_path)
     assert row["tool"] == "SomeMcpTool"
-    assert "args_summary" not in row or row["args_summary"] == ""
+    assert "args_summary" not in row
 
 
 def test_malformed_json_does_not_crash(tmp_path):
@@ -214,3 +214,42 @@ def test_missing_project_dir_silent_fail(tmp_path):
         timeout=5,
     )
     assert result.returncode == 0
+
+
+def test_empty_stdin_does_not_write(tmp_path):
+    """Empty stdin (e.g. a hook event with no body) must not crash and must not write."""
+    env = os.environ.copy()
+    env["CLAUDE_PROJECT_DIR"] = str(tmp_path)
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT)],
+        input="",
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 0
+    log_path = tmp_path / ".claude" / "self-improving-claude" / "telemetry.jsonl"
+    assert not log_path.exists()
+
+
+def test_multiedit_logs_path_only(tmp_path):
+    payload = {
+        "tool_name": "MultiEdit",
+        "tool_input": {"file_path": "/code/foo.py", "edits": [{"old_string": "x", "new_string": "y"}]},
+    }
+    row = run_telemetry(payload, tmp_path)
+    assert row["args_summary"] == "/code/foo.py"
+
+
+def test_grep_redacts_token_pattern(tmp_path):
+    payload = {"tool_name": "Grep", "tool_input": {"pattern": "TOKEN=abc123", "path": "/code"}}
+    row = run_telemetry(payload, tmp_path)
+    assert row["args_summary"] == "<redacted-secret-pattern>"
+
+
+def test_grep_does_not_redact_substring_match(tmp_path):
+    """Word-boundary anchoring means `access_token` (no \\b before `token`) is not redacted."""
+    payload = {"tool_name": "Grep", "tool_input": {"pattern": "access_token", "path": "/code"}}
+    row = run_telemetry(payload, tmp_path)
+    assert row["args_summary"] == "access_token"  # not redacted

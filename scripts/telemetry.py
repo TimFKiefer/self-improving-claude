@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 
 
 SECRET_PATTERN_RE = re.compile(
-    r"(API_KEY|SECRET|PASSWORD|TOKEN|BEARER|PRIVATE_KEY|AWS_|SK_)",
+    r"\b(API_KEY|SECRET|PASSWORD|TOKEN|BEARER|PRIVATE_KEY|AWS_|SK_)",
     re.IGNORECASE,
 )
 
