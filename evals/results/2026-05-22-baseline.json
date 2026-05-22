@@ -1,0 +1,374 @@
+{
+  "date": "2026-05-22T18:49:15Z",
+  "model": "ollama:gemma4:e4b",
+  "results": [
+    {
+      "id": "001-pnpm-test-watcher",
+      "trigger": "improve-init",
+      "user_args": "",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "Blocks the recurring `pnpm test` watcher trap by inspecting the Bash command before it runs and pointing Claude at `pnpm test:ci`; a `permissions.deny` rule would also block the correct `pnpm test:ci` because it has the same prefix.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"Block `pnpm test` (interactive watcher); steer Claude to `pnpm test:ci`.\"\"\"\nimport json, sys\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0  # never break Claude Code on bad input\n\n    if ev.get(\"tool_name\") != \"Bash\":\n        return 0\n\n    tool_input = ev.get(\"tool_input\") or {}\n    command = tool_input.get(\"command\", \"\")\n\n    # Check for the known interactive watcher trap\n    if command.strip().startswith(\"pnpm test\") and \"test:ci\" not in command:\n        print(\"\\n[Guardrail] Warning: Running `pnpm test` often starts an interactive watcher and may time out. Please use `pnpm test:ci` instead, as defined in package.json, for non-interactive CI runs.\", file=sys.stderr)\n        return 2  # Block the command\n\n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "sentinel_name": "self-improving-claude/block-interactive-pnpm-test"
+        },
+        {
+          "form": "prompt-hook",
+          "event": "PreToolUse",
+          "matcher": "Write|Edit|MultiEdit",
+          "rationale": "Ensures project conventions are followed by requiring the agent to run `pnpm lint` before making file changes, as the project requires linting before committing.",
+          "prompt": "Before writing or editing files, please ensure you have run `pnpm lint` to satisfy project conventions. If you have not run the linter, please run `pnpm lint` first and then re-evaluate your changes.",
+          "sentinel_name": "self-improving-claude/enforce-pre-write-linting"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10
+          },
+          "mean": 10.0
+        },
+        {
+          "checks": {
+            "form_matches": 0,
+            "event_matches": 10,
+            "matcher_matches": 0,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 0
+          },
+          "mean": 5.0
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [],
+          "weaknesses": [],
+          "reasoning": "",
+          "score": 0,
+          "parse_error": "Expecting value: line 13 column 11 (char 1471)",
+          "raw_response": "```json\n{\n  \"strengths\": [\n    \"The use of a `PreToolUse` hook is the correct architectural placement to intercept and modify/block the command before execution.\",\n    \"The logic `command.strip().startswith(\\\"pnpm test\\\")` is highly effective and directly targets the specific failure pattern (the interactive watcher invocation).\",\n    \"Returning a non-zero exit code (2) successfully blocks the execution of the incorrect command, preventing the time-consuming and irrelevant watcher process.\"\n  ],"
+        },
+        {
+          "strengths": [
+            "The hook is technically well-formed, using the appropriate PreToolUse event and matcher.",
+            "It enforces a valuable and common project convention (linting before writing), which is generally good practice for agent workflows."
+          ],
+          "weaknesses": [
+            "It completely fails to address the planted problem, which is the incorrect invocation of the test script (`pnpm test` vs `pnpm test:ci`).",
+            "The hook's rationale and prompt are entirely focused on linting, making it irrelevant to the observed failure in the testing workflow."
+          ],
+          "reasoning": "The proposed solution is a perfectly valid and useful hook for enforcing linting, but it is entirely orthogonal to the planted problem. The problem requires correcting the test script invocation, while the solution only addresses code quality checks. Because it does not solve the core issue, the score must be low.",
+          "score": 1
+        }
+      ],
+      "raw_response_head": "{\n  \"proposals\": [\n    {\n      \"form\": \"command-hook\",\n      \"event\": \"PreToolUse\",\n      \"matcher\": \"Bash\",\n      \"rationale\": \"Blocks the recurring `pnpm test` watcher trap by inspecting the Bash command before it runs and pointing Claude at `pnpm test:ci`; a `permissions.deny` rule would also block the correct `pnpm test:ci` because it has the same prefix.\",\n      \"script_lang\": \"python\",\n      \"script\": \"#!/usr/bin/env python3\\n\\\"\\\"\\\"Block `pnpm test` (interactive watcher); steer Claude to `"
+    },
+    {
+      "id": "002-block-env-reads",
+      "trigger": "improve-init",
+      "user_args": "block reads of .env files",
+      "proposals": [
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Blocks reads of `.env` and `.env.local` across all tools with a single rule \u2014 this is the most efficient and uniform way to enforce path-based secrets protection.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": [
+            "Read(**/.env)",
+            "Read(**/.env.local)"
+          ],
+          "claude_md_line": null,
+          "sentinel_name": null
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10
+          },
+          "mean": 10.0
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "The use of `permissions.deny` is the correct and most direct mechanism for enforcing path-based secrets protection.",
+            "The rules correctly identify and target the specific sensitive files (`.env` and `.env.local`).",
+            "Using the `**` glob pattern ensures that the block applies recursively throughout the project structure."
+          ],
+          "weaknesses": [
+            "The rules only specify the `Read` event, failing to block secrets accessed via `Grep` or `Glob` operations, which were explicitly required for uniform coverage.",
+            "To achieve true uniformity, the rules must be generalized to cover all relevant file access events (e.g., `*` instead of just `Read`).",
+            "The proposal does not account for potential variations in file extensions or naming conventions that might still expose secrets."
+          ],
+          "reasoning": "The proposal is highly effective at blocking direct file reads, which solves a major part of the problem. However, because it fails to address the required coverage for `Grep` and `Glob` events, it does not achieve the necessary 'uniform' protection across all specified tools.",
+          "score": 6
+        }
+      ],
+      "raw_response_head": "{\n  \"proposals\": [\n    {\n      \"form\": \"permissions.deny\",\n      \"event\": null,\n      \"matcher\": null,\n      \"rationale\": \"Blocks reads of `.env` and `.env.local` across all tools with a single rule \u2014 this is the most efficient and uniform way to enforce path-based secrets protection.\",\n      \"script_lang\": null,\n      \"script\": null,\n      \"prompt\": null,\n      \"rule\": [\n        \"Read(**/.env)\",\n        \"Read(**/.env.local)\"\n      ],\n      \"claude_md_line\": null,\n      \"sentinel_name\": null\n   "
+    },
+    {
+      "id": "003-prisma-generated-protection",
+      "trigger": "improve-init",
+      "user_args": "",
+      "proposals": [
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Blocks edits to auto-generated Prisma files using a single path rule, which is the cheapest and most direct enforcement mechanism.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Edit(**/src/generated/prisma/)",
+          "claude_md_line": null,
+          "sentinel_name": null
+        },
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Blocks direct writes to the development database file, ensuring schema changes follow the required `prisma migrate` workflow.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Write(prisma/dev.db)",
+          "claude_md_line": null,
+          "sentinel_name": null
+        },
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "Blocks incorrect `pnpm test` invocations by inspecting the command string before execution, guiding the user to the correct `pnpm test:ci` script; a `permissions.deny` rule would be too broad.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\nimport json, sys\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n\n    if ev.get(\"tool_name\") != \"Bash\":\n        return 0\n\n    cmd = (ev.get(\"tool_input\") or {}).get(\"command\", \"\")\n    \n    # Check if it's pnpm test but not the CI version\n    if cmd.strip().startswith(\"pnpm test\") and \"test:ci\" not in cmd:\n        print(\"Warning: Please use `pnpm test:ci` to run tests in CI mode. Running `pnpm test` may open an interactive watcher.\", file=sys.stderr)\n        return 2\n\n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/enforce-ci-test-script"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10
+          },
+          "mean": 10.0
+        },
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 0
+          },
+          "mean": 8.333333333333334
+        },
+        {
+          "checks": {
+            "form_matches": 0,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 0
+          },
+          "mean": 6.666666666666667
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "It correctly identifies and uses the `permissions.deny` mechanism, which is the appropriate enforcement tool.",
+            "The rule `Edit(**/src/generated/prisma/)` is precise and effectively blocks modifications to the auto-generated client files.",
+            "The rationale is clear and correctly identifies the path-based nature of the enforcement."
+          ],
+          "weaknesses": [
+            "The proposal completely ignores the second critical part of the planted problem: preventing writes to the SQLite binary file (`prisma/dev.db`).",
+            "The rule only specifies `Edit()`. Writing to a database file often involves a broader 'Write' or 'Modify' event, and the rule should be expanded to cover all write operations on that file.",
+            "Because it only addresses one of the two forbidden actions, the solution is fundamentally incomplete."
+          ],
+          "reasoning": "The proposal is strong in its mechanism and its handling of the generated client directory. However, by omitting any rule or matcher for the `prisma/dev.db` file, it leaves a major, critical vulnerability unaddressed. Since the database write is a core part of the planted problem, the solution is significantly incomplete.",
+          "score": 6
+        },
+        {
+          "strengths": [
+            "Successfully targets and blocks writes to the specific development database file (`prisma/dev.db`).",
+            "Uses the appropriate `permissions.deny` mechanism for file system enforcement.",
+            "Addresses one of the two critical violations mentioned in the planted problem."
+          ],
+          "weaknesses": [
+            "Completely ignores the first critical violation: unauthorized edits to the auto-generated client directory (`src/generated/prisma/*`).",
+            "The rule is too narrow; it only blocks writing to the database and does not prevent other forms of modification (e.g., reading or deleting) in the generated client folder.",
+            "The solution is incomplete because it only addresses half of the planted problem."
+          ],
+          "reasoning": "The proposal is a good start because it correctly enforces the denial of writing to the development database file. However, it fails to address the second, equally critical violation: the unauthorized editing of the generated client files in `src/generated/prisma/*`. Because it misses half of the planted problem, the score is limited.",
+          "score": 6
+        },
+        {
+          "strengths": [
+            "The hook structure is technically correct for intercepting command execution using `PreToolUse` and `Bash`.",
+            "The script successfully enforces a specific command pattern (`pnpm test:ci`) when running tests, solving the problem it was designed for.",
+            "Using `sys.stderr` for warnings is good practice, ensuring the warning doesn't interfere with standard output."
+          ],
+          "weaknesses": [
+            "The proposal completely fails to address the planted problem, which involves monitoring and blocking file system writes to specific paths (`src/generated/prisma/*` and `prisma/dev.db`).",
+            "The hook only inspects the command string; it has no mechanism to detect or prevent actual file I/O operations (writes, edits, or touches) to forbidden paths.",
+            "The logic is entirely focused on command validation, making it irrelevant to the core requirement of enforcing file path integrity."
+          ],
+          "reasoning": "The proposal is a well-written hook for command validation, but it is entirely orthogonal to the planted problem. The planted problem requires file system monitoring, which this command-hook structure cannot provide. Because it fails to solve the core security/integrity issue, the score must be very low.",
+          "score": 2
+        }
+      ],
+      "raw_response_head": "{\n  \"proposals\": [\n    {\n      \"form\": \"permissions.deny\",\n      \"event\": null,\n      \"matcher\": null,\n      \"rationale\": \"Blocks edits to auto-generated Prisma files using a single path rule, which is the cheapest and most direct enforcement mechanism.\",\n      \"script_lang\": null,\n      \"script\": null,\n      \"prompt\": null,\n      \"rule\": \"Edit(**/src/generated/prisma/)\",\n      \"claude_md_line\": null,\n      \"sentinel_name\": null\n    },\n    {\n      \"form\": \"permissions.deny\",\n      \"event\": null,"
+    },
+    {
+      "id": "004-recursion-prevention",
+      "trigger": "improve",
+      "user_args": "add a guardrail so you don't introduce unbounded recursion again",
+      "proposals": [
+        {
+          "form": "prompt-hook",
+          "event": "PreToolUse",
+          "matcher": "Write|Edit|MultiEdit",
+          "rationale": "Prevents introducing `RecursionError` by forcing the model to evaluate if a proposed refactoring of a traversal algorithm (like `walk_tree`) maintains the project's established iterative pattern, which requires reasoning about code structure.",
+          "prompt": "Review the proposed code change. If this change refactors a tree-walking or graph-traversal function, ensure the implementation remains iterative (using explicit stacks or queues) rather than recursive, especially if the input size is potentially large. If the change introduces deep recursion, explain the risk of `RecursionError` and suggest an iterative alternative.",
+          "sentinel_name": "self-improving-claude/prevent-recursive-refactoring"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10
+          },
+          "mean": 10.0
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "The hook is perfectly targeted by using the 'PreToolUse' event and matching 'Write|Edit|MultiEdit', ensuring it intercepts code changes before they are committed.",
+            "The prompt is highly specific, naming the exact failure mode ('RecursionError') and the required pattern ('iterative using explicit stacks or queues'), making the guardrail actionable.",
+            "By focusing the guardrail on 'tree-walking or graph-traversal functions,' it directly addresses the context of the planted problem (refactoring `walk_tree`)."
+          ],
+          "weaknesses": [
+            "The guardrail is purely prompt-based; it relies entirely on the model's ability to read, understand, and strictly adhere to the warning, which is not guaranteed.",
+            "It might fail if the recursion is introduced in a non-standard way (e.g., deep function call chains unrelated to explicit graph traversal) and not caught by the 'tree-walking' keyword.",
+            "It does not provide a technical enforcement mechanism (like linting or static analysis) but only a conversational warning."
+          ],
+          "reasoning": "This proposal is excellent because it uses the most appropriate hook type and provides a highly specific, actionable prompt that directly addresses the root cause of the failure (unbounded recursion in traversal). While it is not a perfect technical guardrail, it represents the best possible preventative measure within the prompt-hook framework, making it highly effective for the stated goal.",
+          "score": 9
+        }
+      ],
+      "raw_response_head": "{\n  \"proposals\": [\n    {\n      \"form\": \"prompt-hook\",\n      \"event\": \"PreToolUse\",\n      \"matcher\": \"Write|Edit|MultiEdit\",\n      \"rationale\": \"Prevents introducing `RecursionError` by forcing the model to evaluate if a proposed refactoring of a traversal algorithm (like `walk_tree`) maintains the project's established iterative pattern, which requires reasoning about code structure.\",\n      \"prompt\": \"Review the proposed code change. If this change refactors a tree-walking or graph-traversal fu"
+    },
+    {
+      "id": "005-format-on-write",
+      "trigger": "improve-init",
+      "user_args": "",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "Stops the repetitive cycle of running `ruff check` when formatting issues are present by intercepting the command and guiding the user to run `ruff format` first, which is a deterministic check best suited for a command hook.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\nimport json, sys\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0  # never break Claude Code on bad input\n\n    if ev.get(\"tool_name\") != \"Bash\":\n        return 0\n\n    tool_input = ev.get(\"tool_input\") or {}\n    command = tool_input.get(\"command\", \"\").strip()\n\n    # Check if the command is ruff check\n    if command.startswith(\"ruff check\"):\n        print(\"\\n\u26a0\ufe0f Warning: Before running `ruff check`, please run `ruff format` first. `ruff check` will report formatting errors (like indentation) that `ruff format` will automatically fix.\", file=sys.stderr)\n        return 2  # Block the tool call\n\n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "sentinel_name": "self-improving-claude/guide-ruff-formatting"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 0,
+            "matcher_matches": 0,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10
+          },
+          "mean": 6.666666666666667
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "The use of a `PreToolUse` hook is the perfect mechanism for intercepting and correcting a user's workflow error before execution.",
+            "The logic is highly targeted, specifically intercepting `ruff check` and providing a clear, educational warning about the correct tool (`ruff format`).",
+            "Returning a non-zero exit code (2) effectively blocks the incorrect command, forcing the user to acknowledge the required change in workflow."
+          ],
+          "weaknesses": [
+            "The hook is too narrow; it only intercepts `ruff check`. If the user runs other related commands (e.g., `ruff lint`), the formatting issue will still be reported, defeating the purpose of the guidance.",
+            "The solution only warns the user; it does not offer a one-click way to run `ruff format` or automatically apply the fix, which would be a more complete solution to the 'not auto-formatted' problem.",
+            "The warning message, while helpful, might be overly aggressive, potentially frustrating the user if they are simply trying to quickly verify code structure."
+          ],
+          "reasoning": "The proposal successfully identifies and intercepts the core behavioral flaw (running `ruff check` instead of `ruff format`), which is the primary symptom of the planted problem. It uses the correct hook type and provides excellent guidance. It loses one point only because its scope is limited to `ruff check` and doesn't address the general 'auto-formatting' requirement.",
+          "score": 9
+        }
+      ],
+      "raw_response_head": "{\n  \"proposals\": [\n    {\n      \"form\": \"command-hook\",\n      \"event\": \"PreToolUse\",\n      \"matcher\": \"Bash\",\n      \"rationale\": \"Stops the repetitive cycle of running `ruff check` when formatting issues are present by intercepting the command and guiding the user to run `ruff format` first, which is a deterministic check best suited for a command hook.\",\n      \"script_lang\": \"python\",\n      \"script\": \"#!/usr/bin/env python3\\nimport json, sys\\n\\ndef main():\\n    try:\\n        ev = json.load(sys.s"
+    }
+  ],
+  "summary": {
+    "average_code": 9.333333333333332,
+    "average_model": 6.2,
+    "entries": [
+      {
+        "id": "001-pnpm-test-watcher",
+        "code": 10.0,
+        "model": 1
+      },
+      {
+        "id": "002-block-env-reads",
+        "code": 10.0,
+        "model": 6
+      },
+      {
+        "id": "003-prisma-generated-protection",
+        "code": 10.0,
+        "model": 6
+      },
+      {
+        "id": "004-recursion-prevention",
+        "code": 10.0,
+        "model": 9
+      },
+      {
+        "id": "005-format-on-write",
+        "code": 6.666666666666667,
+        "model": 9
+      }
+    ]
+  }
+}
