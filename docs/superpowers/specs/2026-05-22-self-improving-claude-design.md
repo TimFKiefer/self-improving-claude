@@ -43,7 +43,7 @@ self-improving-claude/
 ├── .claude-plugin/
 │   └── plugin.json
 ├── skills/
-│   ├── improve/SKILL.md                          (user-invoked — /improve)
+│   ├── improve/SKILL.md                          (user-invoked — /improve — v0.2+)
 │   ├── improve-init/SKILL.md                     (user-invoked — /improve-init)
 │   └── self-improving-claude/
 │       ├── SKILL.md                              (model-invoked — shared orchestrator)
@@ -57,7 +57,7 @@ self-improving-claude/
 │   └── hooks.json                                (registers the bundled telemetry hook)
 ├── scripts/
 │   └── telemetry.py                              (the telemetry hook script)
-├── evals/
+├── evals/                                        (v0.2+)
 │   ├── dataset.json
 │   ├── fixtures/<id>/                            (per-test fixtures)
 │   ├── grade.py
@@ -126,6 +126,7 @@ Body uses the prompt-engineering practices from `docs/knowledge/prompt-engineeri
         "matcher": "*",
         "hooks": [
           {
+            "name": "self-improving-claude/telemetry",
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry.py",
             "timeout": 5
@@ -136,6 +137,8 @@ Body uses the prompt-engineering practices from `docs/knowledge/prompt-engineeri
   }
 }
 ```
+
+The bundled hook carries the `self-improving-claude/telemetry` sentinel for the same reason every plugin-generated entry does — so users can find and remove it without grepping for opaque paths.
 
 `scripts/telemetry.py` reads JSON from stdin, summarizes, appends to `${CLAUDE_PROJECT_DIR}/.claude/self-improving-claude/telemetry.jsonl`. Output format:
 
