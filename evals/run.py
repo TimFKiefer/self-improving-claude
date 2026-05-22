@@ -14,7 +14,6 @@ import json
 import os
 import re
 import sys
-from pathlib import Path
 
 from evals.fixtures_lib import EVALS_DIR, Fixture, load_dataset, load_fixture
 from evals.grade_code import grade_code

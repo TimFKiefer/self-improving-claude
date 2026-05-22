@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that make real network calls (e.g., Anthropic API). Skipped by default; run with `-m integration`.",
+]
