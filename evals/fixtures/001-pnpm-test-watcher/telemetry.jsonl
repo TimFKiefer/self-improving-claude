@@ -1,0 +1,5 @@
+{"ts":"2026-05-20T09:14:02Z","tool":"Bash","args_summary":"pnpm test","outcome":{"exit_code":143,"stderr_head":"timed out after 120s waiting for prompt"}}
+{"ts":"2026-05-20T11:32:55Z","tool":"Bash","args_summary":"pnpm test","outcome":{"exit_code":143,"stderr_head":"timed out after 120s waiting for prompt"}}
+{"ts":"2026-05-21T15:01:10Z","tool":"Bash","args_summary":"pnpm test","outcome":{"exit_code":143,"stderr_head":"timed out after 120s waiting for prompt"}}
+{"ts":"2026-05-21T15:02:30Z","tool":"Read","args_summary":"/project/package.json"}
+{"ts":"2026-05-21T15:03:01Z","tool":"Bash","args_summary":"pnpm lint","outcome":{"exit_code":0}}

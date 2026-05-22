@@ -1,0 +1,19 @@
+{
+  "entries": [
+    {
+      "id": "001-pnpm-test-watcher",
+      "trigger": "improve-init",
+      "user_args": "",
+      "fixture": "fixtures/001-pnpm-test-watcher",
+      "planted_problem": "Claude keeps invoking `pnpm test` (interactive watcher) instead of `pnpm test:ci` (CI runner); telemetry has 3 non-zero exits, and package.json defines test:ci as the correct script.",
+      "expected_hook_traits": {
+        "form": "command-hook",
+        "event": "PreToolUse",
+        "matcher": "Bash",
+        "blocks_command_prefix": "pnpm test",
+        "allows_command": "pnpm test:ci",
+        "rationale_must_mention": ["pnpm test:ci", "watcher"]
+      }
+    }
+  ]
+}

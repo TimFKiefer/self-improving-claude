@@ -1,0 +1,8 @@
+{
+  "form": "command-hook",
+  "event": "PreToolUse",
+  "matcher": "Bash",
+  "blocks_command_prefix": "pnpm test",
+  "allows_command": "pnpm test:ci",
+  "rationale_must_mention": ["pnpm test:ci", "watcher"]
+}
