@@ -1,0 +1,18 @@
+{
+  "description": "self-improving-claude — passive telemetry hook that logs summarized tool usage for /improve-init",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "self-improving-claude/telemetry",
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
