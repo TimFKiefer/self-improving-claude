@@ -2,7 +2,7 @@
 
 > A Claude Code plugin that turns the bugs you just saw into the hooks that prevent the next ones.
 
-**Status:** v0.1.0 — `/improve-init` (proactive scan) works end-to-end. `/improve` (reactive) is v0.2.
+**Status:** v0.2.0 — `/improve-init` (proactive scan) AND `/improve` (reactive) both work end-to-end. Eval harness with 5 fixtures + code & model graders + first committed baseline (gemma4 via Ollama).
 
 ---
 
@@ -67,6 +67,39 @@ Optional scoped invocation:
 /improve-init "focus on the queries directory"
 ```
 
+### `/improve`
+
+Run *right after* seeing Claude do something you don't want again. Unlike `/improve-init`, this command uses the **current conversation** as its primary signal — the bug you just saw is already in scrollback, and the orchestrator looks there first.
+
+```
+/improve
+/improve "add a guardrail against unbounded recursion"
+/improve "the foo-hook just blocked something legit"
+```
+
+Accepts free-text args for directives or feedback; otherwise scans recent chat for the most-recent observable problem.
+
+### Eval harness
+
+`evals/` is a dev-only measurement substrate for the orchestrator's proposal quality. Five fixtures (`evals/fixtures/001-005/`) plant known problems; the runner asks the model to propose guardrails and grades them with a deterministic code-grader (form/event/matcher/syntax/sentinel/keywords) plus a model-grader (LLM judges substance).
+
+Defaults to local Ollama (no API key needed):
+
+```bash
+pip install -r requirements-dev.txt
+python3 -m evals.run                    # uses gemma4:e4b by default (~5 min)
+python3 -m evals.run --entry 004-...    # just one entry
+```
+
+Switch backends:
+
+```bash
+EVAL_BACKEND=anthropic ANTHROPIC_API_KEY=sk-... python3 -m evals.run
+EVAL_BACKEND=ollama OLLAMA_MODEL=qwen3.5:9b python3 -m evals.run
+```
+
+Baseline: `evals/results/2026-05-22-baseline.json` — code 9.3/10, model 6.2/10 (gemma4:e4b). Future SKILL.md changes should be paired with delta scores so we know whether they regress or improve quality.
+
 ### Telemetry hook
 
 The plugin installs one always-on hook — `PostToolUse: "*"` — that logs summarized tool usage to `.claude/self-improving-claude/telemetry.jsonl` inside each project where Claude Code is active. Logged fields per call:
@@ -98,15 +131,16 @@ If you want to disable telemetry entirely, remove the `PostToolUse` entry whose 
 
 ## Roadmap
 
-- **v0.1** (current) — `/improve-init` proactive scan, per-proposal approval, bundled telemetry hook.
-- **v0.2** — `/improve` reactive mode (uses current chat as primary input); `evals/` harness with code + model graders; generated hooks default to `"type": "prompt"` where the event supports it.
-- **v0.3+** — feedback channel (`/improve "the foo-hook blocked something legit"`), formal conflict UX, more eval entries.
+- **v0.1** — `/improve-init` proactive scan, per-proposal approval, bundled telemetry hook.
+- **v0.2** (current) — `/improve` reactive mode; `evals/` harness with code + model graders + committed scored baselines.
+- **v0.3+** — formal feedback channel (`/improve "the foo-hook blocked something legit"` becomes a structured log), expanded eval coverage, marketplace publish, larger reference baseline (Haiku/Sonnet).
 
 ## Design docs
 
 - `docs/superpowers/specs/2026-05-22-self-improving-claude-design.md` — full design spec.
 - `docs/knowledge/` — distilled Claude Code course material grounding the design.
-- `docs/superpowers/plans/2026-05-22-self-improving-claude-v0.1.md` — the implementation plan for this version.
+- `docs/superpowers/plans/2026-05-22-self-improving-claude-v0.1.md` — v0.1 implementation plan.
+- `docs/superpowers/plans/2026-05-22-self-improving-claude-v0.2.md` — v0.2 implementation plan.
 
 ## License
 

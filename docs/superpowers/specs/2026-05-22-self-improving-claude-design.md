@@ -520,12 +520,13 @@ The rubric (`references/prompt-rubric.md`) lists the qualities every proposal mu
 
 Exit criteria: a user can install the plugin, run `/improve-init`, see a sensible set of proposals, approve some, restart, and find them firing.
 
-### v0.2.0 — "reactive mode and measurement"
+### v0.2.0 — "reactive mode and measurement" (✅ shipped)
 
-- `skills/improve/SKILL.md` (reactive mode).
-- `$ARGUMENTS` routing across both commands.
-- `evals/` with 5 entries + code-grader + model-grader; first scored baseline committed.
-- Generated hooks default to `"type": "prompt"` where the event supports it.
+- ✅ `skills/improve/SKILL.md` (reactive mode).
+- ✅ `$ARGUMENTS` routing across both commands (orchestrator Step 1 handles this since v0.1).
+- ✅ `evals/` with 5 entries + code-grader + model-grader; baseline committed at `evals/results/2026-05-22-baseline.json` (gemma4:e4b via Ollama, code 9.3/10 + model 6.2/10).
+- ✅ Orchestrator's Step 4 biases toward `"type": "prompt"` where the event supports it (already in v0.1 rubric; baseline confirms it).
+- 🎁 Bonus: pluggable eval backend (`EVAL_BACKEND={ollama|anthropic}`) — defaults to local Ollama so the eval runs without an API key.
 
 ### v0.3.0+ — polish
 
