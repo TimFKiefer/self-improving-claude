@@ -536,7 +536,7 @@ Exit criteria: a user can install the plugin, run `/improve-init`, see a sensibl
 - ✅ Multi-event telemetry (PostToolUse + Notification + PreCompact + SessionStart) + SessionEnd inline-bash rotation.
 - ✅ Feedback channel formalized — `feedback.jsonl` persisted, target hook modified in-place.
 - ✅ `/improve-uninstall` slash command.
-- ✅ 7-fixture eval baseline rerun (gemma4; Haiku deferred to user).
+- ✅ 7-fixture eval baseline rerun — gemma4 (local Ollama) AND Haiku (via user's Claude Max subscription using `claude --print`, no API key). Haiku reference: 9.0/10 code, 6.3/10 model.
 - ✅ Public README + CHANGELOG + Anthropic-marketplace PR materials.
 
 ### v0.4.0+ — polish (deferred from earlier roadmap)
@@ -545,7 +545,7 @@ Exit criteria: a user can install the plugin, run `/improve-init`, see a sensibl
 - Conflict UX (keep/replace/skip) for matcher overlaps — fixture + manual smoke test.
 - 10–20 eval entries; documented score thresholds.
 - (Stretch) auto-rewind investigation.
-- Haiku baseline rerun (when user has API key available).
+- **`claude-cli` as a third eval backend** (alongside `ollama` and `anthropic`) — currently lives as a one-shot helper at `/tmp/eval_via_cli.py`; productize into `evals/client_claude_cli.py` for permanent use. Enables Haiku evals without an API key by routing through the user's Claude Code subscription.
 
 ---
 

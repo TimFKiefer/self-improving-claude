@@ -1,0 +1,533 @@
+{
+  "date": "2026-05-23T16:20:45Z",
+  "model": "claude-cli:haiku",
+  "results": [
+    {
+      "id": "001-pnpm-test-watcher",
+      "trigger": "improve-init",
+      "user_args": "",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "Block the recurring `pnpm test` interactive-watcher invocation (3 exit-143 timeouts in telemetry) and steer to `pnpm test:ci`; a permissions.deny rule cannot distinguish `pnpm test` from `pnpm test:ci` without also blocking the correct script.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"Block `pnpm test` (interactive watcher); steer Claude to `pnpm test:ci`.\"\"\"\nimport json, sys\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    \n    if ev.get(\"tool_name\") != \"Bash\":\n        return 0\n    \n    cmd = (ev.get(\"tool_input\") or {}).get(\"command\", \"\")\n    cmd_stripped = cmd.strip()\n    \n    # Block bare `pnpm test` (interactive watcher); allow `pnpm test:ci` and variants\n    if cmd_stripped == \"pnpm test\":\n        print(\n            \"Use `pnpm test:ci` instead \u2014 `pnpm test` opens an interactive watcher and will timeout.\",\n            file=sys.stderr\n        )\n        return 2\n    \n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "sentinel_name": "self-improving-claude/block-pnpm-test-watcher"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "rule_pattern": 10
+          },
+          "mean": 10.0
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "Correctly targets the root invocation with PreToolUse on Bash tool, preventing the problematic command before execution with appropriate exit code 2",
+            "Exact pattern matching (`cmd_stripped == \"pnpm test\"`) correctly blocks only the bare interactive watcher while allowing `pnpm test:ci` and other variants to pass through",
+            "Error message is clear and actionable: explains the problem (timeout) and directs Claude to the correct command with full context"
+          ],
+          "weaknesses": [
+            "Pattern is strictly equality-based; if Claude is also invoking `pnpm test --watch`, `pnpm test 2>&1`, or other command-building variants that trigger timeouts, the hook won't catch them",
+            "Solves the symptom (blocks invocations) but not the root cause (why Claude repeatedly chooses `pnpm test` over `test:ci` in the first place); a guided prompt or memory update might prevent future recurrence",
+            "No verification mechanism: the hook prevents execution but provides no feedback on whether the redirect actually stops the 3 timeout failures, nor does it integrate with telemetry to confirm effectiveness"
+          ],
+          "reasoning": "The hook directly solves the stated problem: it blocks `pnpm test` with clear guidance and allows `pnpm test:ci`. The implementation is robust (safe JSON parsing, correct tool filtering, appropriate exit code). The main limitation is the strict pattern matching\u2014if Claude invokes problematic variants like `pnpm test --watch`, the hook misses them. However, the problem statement suggests bare `pnpm test` is the pattern, making strict matching likely correct. This is a well-executed prevention hook, though it only addresses the symptom, not why Claude keeps making the choice.",
+          "score": 9
+        }
+      ],
+      "raw_response_head": "```json\n{\n  \"proposals\": [\n    {\n      \"form\": \"command-hook\",\n      \"event\": \"PreToolUse\",\n      \"matcher\": \"Bash\",\n      \"rationale\": \"Block the recurring `pnpm test` interactive-watcher invocation (3 exit-143 timeouts in telemetry) and steer to `pnpm test:ci`; a permissions.deny rule cannot distinguish `pnpm test` from `pnpm test:ci` without also blocking the correct script.\",\n      \"script_lang\": \"python\",\n      \"script\": \"#!/usr/bin/env python3\\n\\\"\\\"\\\"Block `pnpm test` (interactive watcher)"
+    },
+    {
+      "id": "002-block-env-reads",
+      "trigger": "improve-init",
+      "user_args": "block reads of .env files",
+      "proposals": [
+        {
+          "form": "permissions.deny",
+          "rationale": "Blocks reads of `.env` files uniformly across all tools; closes the recurring read pattern shown in telemetry.",
+          "rule": "Read(**/.env)"
+        },
+        {
+          "form": "permissions.deny",
+          "rationale": "Blocks reads of `.env.*` files (like `.env.local` which contains secrets) uniformly across all tools; closes the recurring read pattern shown in telemetry.",
+          "rule": "Read(**/.env.*)"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "rule_pattern": 10
+          },
+          "mean": 10.0
+        },
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "rule_pattern": 0
+          },
+          "mean": 8.571428571428571
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "Correctly identifies permissions.deny as the appropriate form for blocking access",
+            "Uses glob pattern `**/.env` to catch .env files at any directory depth, not just root",
+            "Targets the Read tool, which is the primary vector for accidental .env exposure"
+          ],
+          "weaknesses": [
+            "Only blocks .env, not .env.local \u2014 the planted problem explicitly requires both",
+            "Only covers the Read tool; the planted problem requires blocking uniformly across Read/Grep/Glob, but this rule doesn't block Grep or Glob from matching/reading .env files",
+            "Rule syntax as written `Read(**/.env)` suggests a single rule for one tool \u2014 would need separate rules or a multi-tool syntax to achieve the stated uniformity requirement"
+          ],
+          "reasoning": "The proposal addresses part of the problem (blocking .env reads via Read) but fails to close the full attack surface. Missing .env.local entirely leaves a gap, and blocking only Read while Grep and Glob can still access .env files undermines the 'uniformly across all tools' requirement. This is a partial solution that would need to be expanded to fully solve the planted problem.",
+          "score": 3
+        },
+        {
+          "strengths": [
+            "Targets the most direct and dangerous vector: the Read tool, which is the primary way secrets leak",
+            "Uses a glob pattern `**/.env.*` that catches common variants (.env, .env.local, .env.production, etc.)",
+            "Simple, clear rule that's easy to understand and maintain"
+          ],
+          "weaknesses": [
+            "Violates the explicit requirement for uniform blocking 'across Read/Grep/Glob' \u2014 only covers Read, leaving Grep and Glob open to search/list .env files",
+            "Incomplete solution: a user could still use `Grep` to search .env content or `Glob` to discover .env files in directory listings",
+            "Missing rules for the other two tools mentioned in the problem statement \u2014 needs separate `permissions.deny` entries for Grep and Glob patterns"
+          ],
+          "reasoning": "The proposal correctly identifies and blocks the primary attack surface (Read) but fails to meet the stated requirement of uniform blocking across all three tools. An incomplete solution that addresses only 1 of 3 specified tools does not solve the planted problem, even though it mitigates the most critical case.",
+          "score": 4
+        }
+      ],
+      "raw_response_head": "```json\n{\n  \"proposals\": [\n    {\n      \"form\": \"permissions.deny\",\n      \"rationale\": \"Blocks reads of `.env` files uniformly across all tools; closes the recurring read pattern shown in telemetry.\",\n      \"rule\": \"Read(**/.env)\"\n    },\n    {\n      \"form\": \"permissions.deny\",\n      \"rationale\": \"Blocks reads of `.env.*` files (like `.env.local` which contains secrets) uniformly across all tools; closes the recurring read pattern shown in telemetry.\",\n      \"rule\": \"Read(**/.env.*)\"\n    }\n  ]\n}\n`"
+    },
+    {
+      "id": "003-prisma-generated-protection",
+      "trigger": "improve-init",
+      "user_args": "",
+      "proposals": [
+        {
+          "form": "permissions.deny",
+          "rationale": "Blocks manual edits to auto-generated Prisma files, enforcing the documented 'Do NOT edit' constraint observed in the CLAUDE.md and violated in telemetry (Edit to src/generated/prisma/index.d.ts).",
+          "rule": "Edit(src/generated/prisma/**)"
+        },
+        {
+          "form": "permissions.deny",
+          "rationale": "Blocks writes to auto-generated Prisma files, preventing circumvention of the regeneration constraint through file creation.",
+          "rule": "Write(src/generated/prisma/**)"
+        },
+        {
+          "form": "permissions.deny",
+          "rationale": "Blocks direct writes to the SQLite database file, enforcing the documented constraint that schema changes go through `prisma migrate`.",
+          "rule": "Write(prisma/dev.db)"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "rule_pattern": 10
+          },
+          "mean": 10.0
+        },
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "rule_pattern": 0
+          },
+          "mean": 8.571428571428571
+        },
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 0,
+            "rule_pattern": 0
+          },
+          "mean": 7.142857142857143
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "Correctly targets the observed violation in telemetry (Edit to src/generated/prisma/index.d.ts) with appropriate glob pattern",
+            "Uses the right enforcement mechanism (permissions.deny on Edit tool) to prevent future manual edits to auto-generated files",
+            "Addresses the specific documented constraint in CLAUDE.md about not editing generated Prisma files"
+          ],
+          "weaknesses": [
+            "Completely omits the second violation in the planted problem: writes to prisma/dev.db (SQLite binary). No rule blocks Bash or Write operations that could modify the database file",
+            "Only blocks the Edit tool, leaving alternative pathways open\u2014Bash commands (e.g., sqlite3, npm migrations) or Write tool could still modify both the generated files and the database",
+            "Solves approximately 50% of the planted problem, leaving database file integrity unenforced"
+          ],
+          "reasoning": "The proposal correctly identifies and blocks one half of the constraint violation (edits to src/generated/prisma/*) but ignores the second half entirely (writes to prisma/dev.db). A complete solution must prevent both violations across all relevant tools (Edit, Write, Bash). This is a partial solution that fixes the observed telemetry issue but leaves the documented constraint on database files completely unenforced.",
+          "score": 4
+        },
+        {
+          "strengths": [
+            "Directly blocks the Write tool on the exact path pattern mentioned in the problem, preventing the most obvious edit scenario",
+            "Uses permissions.deny for actual enforcement rather than documentation, addressing the 'no enforcement exists' gap",
+            "Clear glob pattern that matches the stated auto-generated file location"
+          ],
+          "weaknesses": [
+            "Ignores the second half of the problem entirely\u2014prisma/dev.db writes are not blocked, so Claude can still modify the SQLite binary",
+            "Only blocks the Write tool; Claude could circumvent this via Bash (echo, tee, etc.) to write to these paths since the rule doesn't protect against shell-based writes",
+            "Missing broader coverage: denies Write but doesn't address Edit tool, which could theoretically modify files if they already exist"
+          ],
+          "reasoning": "The proposal solves one part of the two-part problem (preventing Write-based edits to auto-generated Prisma files) but completely omits enforcement for database writes and leaves loopholes via other tools. A complete solution would need to block both paths and all write mechanisms, not just the Write tool.",
+          "score": 4
+        },
+        {
+          "strengths": [
+            "Directly blocks writes to the SQLite database file, preventing a clear violation of the documented constraint",
+            "Uses a specific, targeted rule that won't over-block legitimate operations",
+            "Enforces the intent that schema changes should go through `prisma migrate` rather than direct database manipulation"
+          ],
+          "weaknesses": [
+            "Solves only half the planted problem: it blocks writes to `prisma/dev.db` but ignores the documented constraint against editing `src/generated/prisma/*` auto-generated files",
+            "Missing complementary rule: a complete solution needs `permissions.deny` rules for both `Write(prisma/dev.db)` AND `Write(src/generated/prisma/*)` to enforce both constraints listed in the problem",
+            "Addresses the symptom (database file writes) rather than the root cause (hand-editing generated client code), leaving one major violation path open"
+          ],
+          "reasoning": "The proposal correctly identifies and blocks one of two documented violations, but leaving the auto-generated client unprotected is a significant gap. A developer blocked from writing the database directly could still hand-edit the generated Prisma client, violating the other half of the constraint. The solution needs both deny rules to be complete.",
+          "score": 5
+        }
+      ],
+      "raw_response_head": "```json\n{\n  \"proposals\": [\n    {\n      \"form\": \"permissions.deny\",\n      \"rationale\": \"Blocks manual edits to auto-generated Prisma files, enforcing the documented 'Do NOT edit' constraint observed in the CLAUDE.md and violated in telemetry (Edit to src/generated/prisma/index.d.ts).\",\n      \"rule\": \"Edit(src/generated/prisma/**)\"\n    },\n    {\n      \"form\": \"permissions.deny\",\n      \"rationale\": \"Blocks writes to auto-generated Prisma files, preventing circumvention of the regeneration constraint"
+    },
+    {
+      "id": "004-recursion-prevention",
+      "trigger": "improve",
+      "user_args": "add a guardrail so you don't introduce unbounded recursion again",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Edit|MultiEdit",
+          "rationale": "Blocks edits that introduce recursive functions into tree-handling code, preventing the RecursionError that occurred when walk_tree was made recursive; deterministic command-hook is lighter than a prompt-hook and catches the issue before tests fail.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\nimport json, sys, re\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    \n    tool = ev.get(\"tool_name\", \"\")\n    if tool not in (\"Edit\", \"MultiEdit\"):\n        return 0\n    \n    inp = ev.get(\"tool_input\") or {}\n    if \"tree\" not in inp.get(\"file_path\", \"\").lower():\n        return 0\n    \n    if tool == \"Edit\":\n        old_code = inp.get(\"old_string\", \"\")\n        new_code = inp.get(\"new_string\", \"\")\n    else:\n        edits = inp.get(\"edits\") or []\n        old_code = \"\\n\".join(e.get(\"old_string\", \"\") for e in edits)\n        new_code = \"\\n\".join(e.get(\"new_string\", \"\") for e in edits)\n    \n    old_recursive = bool(re.search(r\"def\\s+(\\w+)\\s*\\([^)]*\\):.*?\\1\\s*\\(\", old_code, re.DOTALL))\n    new_recursive = bool(re.search(r\"def\\s+(\\w+)\\s*\\([^)]*\\):.*?\\1\\s*\\(\", new_code, re.DOTALL))\n    \n    if new_recursive and not old_recursive:\n        print(\n            \"Recursive tree functions will hit Python's ~1000-node recursion limit.\\n\"\n            \"Keep the iterative stack/worklist approach.\",\n            file=sys.stderr\n        )\n        return 2\n    \n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "sentinel_name": "self-improving-claude/block-recursive-tree-edits"
+        },
+        {
+          "form": "command-hook",
+          "event": "PostToolUse",
+          "matcher": "Write",
+          "rationale": "Warns if new files written to tree-handling code use recursion, catching the recursion problem before tests run; PostToolUse feedback complements the PreToolUse blocker by covering the Write case.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\nimport json, sys, re\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    \n    tool = ev.get(\"tool_name\", \"\")\n    if tool != \"Write\":\n        return 0\n    \n    inp = ev.get(\"tool_input\") or {}\n    if \"tree\" not in inp.get(\"file_path\", \"\").lower():\n        return 0\n    \n    code = inp.get(\"content\", \"\")\n    if re.search(r\"def\\s+(\\w+)\\s*\\([^)]*\\):.*?\\1\\s*\\(\", code, re.DOTALL):\n        print(\n            \"\u26a0\ufe0f  New tree-handling code uses recursion; will hit Python's ~1000-node limit.\\n\"\n            \"Use iterative stack/worklist instead.\",\n            file=sys.stderr\n        )\n        return 2\n    \n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "sentinel_name": "self-improving-claude/warn-recursive-tree-writes"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 0,
+            "event_matches": 10,
+            "matcher_matches": 0,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "rule_pattern": 10
+          },
+          "mean": 7.142857142857143
+        },
+        {
+          "checks": {
+            "form_matches": 0,
+            "event_matches": 0,
+            "matcher_matches": 0,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "rule_pattern": 10
+          },
+          "mean": 5.714285714285714
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "Correctly targets the problem domain (tree-handling code) and timing (catch at edit, before test failure)",
+            "Uses a deterministic command hook rather than an LLM judgment call, keeping it fast and predictable",
+            "Implements before/after comparison to avoid blocking existing recursive code, reducing false positives from pre-existing functions"
+          ],
+          "weaknesses": [
+            "Regex pattern with `re.DOTALL` is fundamentally unreliable: `def\\s+(\\w+)...\\1\\s*\\(` will match false positives (e.g., two sequential functions where bar calls foo will incorrectly trigger as foo recursing). AST parsing would be needed for correctness.",
+            "File path filter `if \"tree\" not in file_path` is too restrictive\u2014catches only files literally named 'tree', missing graph.py, node.py, hierarchy.py, or tree handling in other module names. Also doesn't catch indirect recursion (walk_tree \u2192 traverse \u2192 walk_tree) which causes the same RecursionError.",
+            "MultiEdit handling concatenates new_string values across multiple edits into a single string, then applies the regex\u2014this loses per-file context and will produce false positives/negatives across file boundaries. More critically, the error message says 'keep the iterative approach' but the hook doesn't enforce that; it only blocks one type of violation."
+          ],
+          "reasoning": "The proposal correctly identifies the problem (recursive tree helpers hitting Python's recursion limit) and picks an appropriate hook point (PreToolUse on Edit). However, the regex-based detection is fragile\u2014it will incorrectly flag unrelated function calls and miss indirect recursion\u2014and the file filter is so narrow it would miss the problem in many real codebases. The hook blocks but doesn't guide; a better solution would enforce iterative patterns or require depth limits, and would use AST parsing or a stricter heuristic to avoid false positives.",
+          "score": 4
+        },
+        {
+          "strengths": [
+            "Targets the right moment: PostToolUse on Write catches code before it's tested, providing immediate feedback during development",
+            "Scopes correctly: Filters to tree-handling files to avoid false positives on unrelated recursive code",
+            "Non-blocking warning (exit 2) allows the write to proceed while alerting the developer, appropriate for a guardrail"
+          ],
+          "weaknesses": [
+            "Regex is fragile: `def\\s+(\\w+)\\s*\\([^)]*\\):.*?\\1\\s*\\(` doesn't reliably match recursion across whitespace/newlines, misses class methods (`self.walk_tree()`), and won't catch mutual recursion (A\u2192B\u2192A) or indirect calls through helpers",
+            "Doesn't distinguish safe from unsafe recursion: Warns on all recursive code equally, even if it has explicit depth bounds or safe worklist patterns; users can't write a recursive helper with proper safeguards",
+            "Misses realistic recursive patterns: Won't catch `walk_tree` calling `_visit_subtree` which calls `walk_tree`, or recursion across multiple writes; the simple self-call detection is too narrow for a project-wide guardrail"
+          ],
+          "reasoning": "The hook tackles the right problem and would catch the exact bug that occurred (direct recursive call), but the regex detection is too simplistic for production use. It would allow many realistic recursive patterns to slip through while also false-alarming on safe recursive code with depth bounds. For a guardrail meant to prevent RecursionError, partial detection with high false-negative rate undermines the goal.",
+          "score": 5
+        }
+      ],
+      "raw_response_head": "```json\n{\n  \"proposals\": [\n    {\n      \"form\": \"command-hook\",\n      \"event\": \"PreToolUse\",\n      \"matcher\": \"Edit|MultiEdit\",\n      \"rationale\": \"Blocks edits that introduce recursive functions into tree-handling code, preventing the RecursionError that occurred when walk_tree was made recursive; deterministic command-hook is lighter than a prompt-hook and catches the issue before tests fail.\",\n      \"script_lang\": \"python\",\n      \"script\": \"#!/usr/bin/env python3\\nimport json, sys, re\\n\\ndef m"
+    },
+    {
+      "id": "005-format-on-write",
+      "trigger": "improve-init",
+      "user_args": "",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PostToolUse",
+          "matcher": "Edit|MultiEdit",
+          "rationale": "Runs `ruff format` after each Python file edit, auto-fixing recurring style violations like mixed indentation that telemetry shows failing `ruff check` twice; auto-format is lighter than relying on CLAUDE.md notes and prevents the silent drift that causes CI failures.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"After Edit/MultiEdit to a Python file, run ruff format to auto-fix style.\"\"\"\nimport json, subprocess, sys, os\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    \n    if ev.get(\"tool_name\") not in (\"Edit\", \"MultiEdit\"):\n        return 0\n    \n    inp = ev.get(\"tool_input\") or {}\n    file_path = inp.get(\"file_path\", \"\")\n    \n    if not file_path.endswith(\".py\"):\n        return 0\n    \n    if not os.path.isfile(file_path):\n        return 0\n    \n    try:\n        result = subprocess.run(\n            [\"ruff\", \"format\", file_path],\n            capture_output=True,\n            text=True,\n            timeout=10,\n        )\n        if result.stdout:\n            print(f\"Auto-formatted {file_path}\", file=sys.stderr)\n            print(result.stdout, file=sys.stderr)\n    except Exception:\n        pass\n    \n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "sentinel_name": "self-improving-claude/auto-format-python-files"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 0,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "rule_pattern": 10
+          },
+          "mean": 8.571428571428571
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "Correctly targets PostToolUse event on Edit/MultiEdit and filters for .py files, executing `ruff format` immediately after edits to prevent style violations from cascading to CI",
+            "Implements sensible safety guards: file existence check, 10-second timeout, and graceful exception handling prevent the hook from crashing",
+            "Directly solves the planted problem\u2014auto-formatting Python files on edit using the formatter specified in CLAUDE.md avoids the 'silent drift' to CI failures that motivated this"
+          ],
+          "weaknesses": [
+            "Matcher triggers on all Edit/MultiEdit events, not just Python files; filtering happens in the script, wasting cycles on non-.py edits (settings.json matchers may not support file-type filtering, but this inefficiency is worth noting)",
+            "Silent exception handling (`except Exception: pass`) masks real failures\u2014if ruff isn't installed, is misconfigured, or the subprocess fails for unexpected reasons, users get no feedback and may silently assume formatting happened",
+            "No pre-flight check for ruff availability (e.g., `which ruff`), and stderr output goes to the system log, not the user-visible console\u2014users won't see which files were formatted unless they dig into logs"
+          ],
+          "reasoning": "The hook solves the core problem: it runs `ruff format` on .py edits to prevent style violations from failing CI. The implementation is functional and includes basic safety measures. However, the overly broad matcher (triggers on all edits, filters in script) and silent error handling (catches all exceptions, masks real failures) are implementation gaps that reduce confidence in reliability and debuggability. A ruff availability check would also strengthen it.",
+          "score": 7
+        }
+      ],
+      "raw_response_head": "```json\n{\n  \"proposals\": [\n    {\n      \"form\": \"command-hook\",\n      \"event\": \"PostToolUse\",\n      \"matcher\": \"Edit|MultiEdit\",\n      \"rationale\": \"Runs `ruff format` after each Python file edit, auto-fixing recurring style violations like mixed indentation that telemetry shows failing `ruff check` twice; auto-format is lighter than relying on CLAUDE.md notes and prevents the silent drift that causes CI failures.\",\n      \"script_lang\": \"python\",\n      \"script\": \"#!/usr/bin/env python3\\n\\\"\\\"\\\"Aft"
+    },
+    {
+      "id": "006-rename-callers",
+      "trigger": "improve",
+      "user_args": "add a hook that shows all references when I rename an exported identifier",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PostToolUse",
+          "matcher": "Edit|MultiEdit",
+          "rationale": "Surfaces all references to an exported identifier whenever its definition is edited in the codebase; catches both imports and hardcoded string usages that could break on rename.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"After Edit/MultiEdit, if an exported identifier is touched, grep for all references.\"\"\"\nimport json, re, subprocess, sys\n\nEXPORT_DEF = re.compile(\n    r\"export\\s+(?:const|let|var|function|class|type|interface|enum)\\s+(\\w+)\"\n)\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    \n    if ev.get(\"tool_name\") not in (\"Edit\", \"MultiEdit\"):\n        return 0\n    \n    inp = ev.get(\"tool_input\") or {}\n    \n    # Collect all edited strings\n    if inp.get(\"old_string\") is not None:\n        edits = [{\"old_string\": inp.get(\"old_string\", \"\"), \"new_string\": inp.get(\"new_string\", \"\")}]\n    else:\n        edits = inp.get(\"edits\") or []\n    \n    # Extract exported identifier names\n    names = set()\n    for e in edits:\n        for s in (e.get(\"old_string\", \"\"), e.get(\"new_string\", \"\")):\n            m = EXPORT_DEF.search(s)\n            if m:\n                names.add(m.group(1))\n    \n    if not names:\n        return 0\n    \n    cwd = ev.get(\"cwd\", \".\")\n    found_refs = False\n    \n    for name in sorted(names):\n        try:\n            r = subprocess.run(\n                [\"grep\", \"-rn\", \"--include=*.ts\", \"--include=*.tsx\",\n                 \"--include=*.js\", \"--include=*.jsx\", \"--include=*.py\",\n                 r\"\\b\" + name + r\"\\b\", cwd],\n                capture_output=True, text=True, timeout=5, cwd=cwd\n            )\n            \n            hits = [l.strip() for l in r.stdout.splitlines() if l.strip()]\n            if hits:\n                found_refs = True\n                print(f\"Export '{name}' edited. Found {len(hits)} reference(s):\", file=sys.stderr)\n                for h in hits[:20]:\n                    print(f\"  {h}\", file=sys.stderr)\n                if len(hits) > 20:\n                    print(f\"  ... and {len(hits) - 20} more\", file=sys.stderr)\n        except Exception:\n            pass\n    \n    if found_refs:\n        return 2\n    \n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "sentinel_name": "self-improving-claude/grep-export-references"
+        },
+        {
+          "form": "prompt-hook",
+          "event": "PreToolUse",
+          "matcher": "Edit|MultiEdit",
+          "rationale": "Proactively prevents renaming exported identifiers without first checking for references; uses LLM reasoning to identify at-risk edits and prompt for manual grep verification before the edit lands.",
+          "prompt": "Evaluate this Edit or MultiEdit operation. If old_string or new_string contains an export definition (export const IDENTIFIER, export function NAME, export type T, etc.), respond with 'deny' and explain that the user should first grep for all references using grep -rn '\\bIDENTIFIER\\b' . to find imports and hardcoded usages. Otherwise respond with 'allow'.",
+          "sentinel_name": "self-improving-claude/gate-export-renames"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 0,
+            "rule_pattern": 10
+          },
+          "mean": 8.571428571428571
+        },
+        {
+          "checks": {
+            "form_matches": 0,
+            "event_matches": 0,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 0,
+            "rule_pattern": 10
+          },
+          "mean": 5.714285714285714
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "Correctly triggers at the right moment (PostToolUse after Edit/MultiEdit) to catch exported definition changes before they break things",
+            "Accurately identifies exported identifiers using a comprehensive regex that covers const, let, var, function, class, type, interface, enum\u2014not just a subset",
+            "Grep with word boundaries `\\b` + identifier + `\\b` avoids false matches on substrings and will surface both imports and string-literal references that use the identifier name"
+          ],
+          "weaknesses": [
+            "Only catches references to the **identifier name** (e.g., FILE_READ_TOOL_NAME), not hardcoded **string values** (e.g., 'Read'). In the planted problem, if people hardcoded `tool_name: 'Read'` instead of importing FILE_READ_TOOL_NAME, changing the value won't surface those broken callers\u2014the hook won't grep for 'Read' to find them",
+            "Could be noisy: any widely-used export triggers a full grep on every edit, potentially showing 50+ unrelated references. No filtering for significant changes (only name changes matter; value-only changes produce useless reference lists). This causes hook fatigue and obscures the actual problem",
+            "Returns exit code 2 with stderr output, but doesn't help the user understand *which* references actually broke from their edit or *how* to fix them\u2014it surfaces the list but not the diagnostic"
+          ],
+          "reasoning": "The hook implements the stated requirement (surface identifier references on edit) but misses the core planted problem: hardcoded string values that silently break on value change. It would catch imports of FILE_READ_TOOL_NAME, but not the 15 places using the literal string 'Read'. For value-only edits, the reference list isn't actionable. Score reflects that it solves the requirement as written, but not the underlying issue.",
+          "score": 6
+        },
+        {
+          "strengths": [
+            "Intercepts the right event (Edit operations) before changes land, enabling proactive prevention rather than post-hoc detection",
+            "Correctly identifies the root cause (missing reference checks) and prompts for the exact remediation (grep for backlinks)",
+            "Covers common export patterns (const, function, type) that would catch the FILE_READ_TOOL_NAME scenario"
+          ],
+          "weaknesses": [
+            "Overly broad matcher: triggers on ANY Edit touching an export definition, not just identifier renames, causing severe false positives (editing an export's implementation, comments, or body will block the user)",
+            "Incomplete export pattern detection: misses export default, named re-exports (export { X } from '...'), classes, and separate export statements (const X = ...; export { X })",
+            "Still places the burden on the user to manually grep and verify; doesn't actually surface references automatically or prevent the mistake if the user skips the grep step"
+          ],
+          "reasoning": "The hook has the right instinct (guard export edits with reference checks) and targets the correct event, but the implementation is too aggressive and incomplete. False positives on every benign export edit will cause users to disable or ignore the hook, and incomplete pattern matching will miss real renames. Most critically, it doesn't actually solve the silent-breakage problem\u2014it only nags users to verify manually, which they can skip.",
+          "score": 4
+        }
+      ],
+      "raw_response_head": "```json\n{\n  \"proposals\": [\n    {\n      \"form\": \"command-hook\",\n      \"event\": \"PostToolUse\",\n      \"matcher\": \"Edit|MultiEdit\",\n      \"rationale\": \"Surfaces all references to an exported identifier whenever its definition is edited in the codebase; catches both imports and hardcoded string usages that could break on rename.\",\n      \"script_lang\": \"python\",\n      \"script\": \"#!/usr/bin/env python3\\n\\\"\\\"\\\"After Edit/MultiEdit, if an exported identifier is touched, grep for all references.\\\"\\\"\\\"\\nim"
+    },
+    {
+      "id": "007-git-push-warn",
+      "trigger": "improve-init",
+      "user_args": "",
+      "proposals": [
+        {
+          "form": "permissions.ask",
+          "event": null,
+          "matcher": null,
+          "rationale": "Ensures every `git push` invocation (including the force-push to main in telemetry) requires human confirmation, enforcing CLAUDE.md's directive that pushes always involve a human.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Bash(git push:*)",
+          "claude_md_line": null,
+          "sentinel_name": null
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 0,
+            "rationale_keywords": 10,
+            "rule_pattern": 10
+          },
+          "mean": 8.571428571428571
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "Uses the correct mechanism (`permissions.ask`) to enforce human confirmation without hard-blocking, matching the user's 'not a hard block, just confirmation' requirement",
+            "Pattern `Bash(git push:*)` directly targets common git push invocations and covers variants with different arguments (e.g., `git push -f`, `git push origin main`)",
+            "Focused and precise scope\u2014targets only the Bash tool with git push commands, avoiding interference with other git operations or tools"
+          ],
+          "weaknesses": [
+            "Pattern may not catch indirect git push invocations: commands like `bash -c \"git push\"` or git pushes invoked via scripts might not match if the hook is matching on command prefix",
+            "Git aliases with different command names (e.g., `alias gp='git push'`) would bypass the rule entirely, leaving a loophole for automated pushes",
+            "Rationale mentions 'force-push to main in telemetry' without clarity\u2014this phrasing suggests a specific incident or concern that isn't obviously addressed by the rule alone"
+          ],
+          "reasoning": "The proposal solves the planted problem for typical direct invocations: when Claude calls `git push` through the Bash tool, the user will be prompted. The mechanism and pattern are correct for the common case. However, the rule may not catch edge cases like nested bash calls or custom git aliases, meaning the claim to ensure 'every' git push invocation is overstated. For the user's stated scenario (Claude pushing from an agent), this should work, but it's not bulletproof.",
+          "score": 8
+        }
+      ],
+      "raw_response_head": "```json\n{\n  \"proposals\": [\n    {\n      \"form\": \"permissions.ask\",\n      \"event\": null,\n      \"matcher\": null,\n      \"rationale\": \"Ensures every `git push` invocation (including the force-push to main in telemetry) requires human confirmation, enforcing CLAUDE.md's directive that pushes always involve a human.\",\n      \"script_lang\": null,\n      \"script\": null,\n      \"prompt\": null,\n      \"rule\": \"Bash(git push:*)\",\n      \"claude_md_line\": null,\n      \"sentinel_name\": null\n    }\n  ]\n}\n```\n"
+    }
+  ],
+  "summary": {
+    "average_code": 8.979591836734693,
+    "average_model": 6.285714285714286,
+    "entries": [
+      {
+        "id": "001-pnpm-test-watcher",
+        "code": 10.0,
+        "model": 9
+      },
+      {
+        "id": "002-block-env-reads",
+        "code": 10.0,
+        "model": 4
+      },
+      {
+        "id": "003-prisma-generated-protection",
+        "code": 10.0,
+        "model": 5
+      },
+      {
+        "id": "004-recursion-prevention",
+        "code": 7.142857142857143,
+        "model": 5
+      },
+      {
+        "id": "005-format-on-write",
+        "code": 8.571428571428571,
+        "model": 7
+      },
+      {
+        "id": "006-rename-callers",
+        "code": 8.571428571428571,
+        "model": 6
+      },
+      {
+        "id": "007-git-push-warn",
+        "code": 8.571428571428571,
+        "model": 8
+      }
+    ]
+  }
+}

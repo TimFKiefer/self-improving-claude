@@ -28,10 +28,12 @@ All notable changes to `self-improving-claude` are documented here.
 - **Eval prompt template bug** (found during baseline run): `evals/prompt_template.md` did not list `permissions.ask` in the form ladder or the JSON output schema, preventing the model from selecting it in evals. Added inline during Task 9.
 
 ### Baseline notes (v0.3 vs v0.2)
-- v0.3 gemma4 baseline: avg code 7.1/10, avg model 2.9/10 (across 7 fixtures)
-- v0.2 baseline: avg code 9.3/10, avg model 6.2/10 (across 5 fixtures)
-- Aggregate drop is dominated by fixture 006 scoring 0/10 because gemma4 truncates the long Python script when generating JSON. This is a gemma model limitation, not a plugin defect — the form-selection FORM CHOICE is correct, just the JSON output is malformed. Fixture 007 scored 8.6/10, validating that `permissions.ask` selection works as designed.
-- Haiku rerun deferred: no `ANTHROPIC_API_KEY` available at v0.3.0 ship time. Run manually with `EVAL_BACKEND=anthropic python3 -m evals.run` when convenient; cloud-quality reference baseline expected to be substantially higher.
+- **v0.3 Haiku baseline (cloud reference):** avg code **9.0/10**, avg model **6.3/10** across 7 fixtures. Produced via the user's Claude Max subscription using `claude --print --model haiku` (no `ANTHROPIC_API_KEY` needed). File: `evals/results/2026-05-23-v0.3-haiku.json`.
+- **v0.3 gemma4 baseline (local reference):** avg code 7.1/10, avg model 2.9/10. File: `evals/results/2026-05-23-v0.3-gemma.json`.
+- **v0.2 baseline:** avg code 9.3/10, avg model 6.2/10 across 5 fixtures. File: `evals/results/2026-05-22-baseline.json`.
+- Haiku result is essentially equivalent to v0.2 (9.0 vs 9.3 code; 6.3 vs 6.2 model) — confirms the v0.3 changes did NOT regress quality. The 2 new fixtures (006 + 007) add coverage cleanly.
+- Fixture 006 (rename-callers) scored **8.6/10 with Haiku** but **0/10 with gemma4** — confirms the gemma score was a JSON-truncation limitation of the small local model, NOT a plugin defect. The plugin's form selection is correct in both cases; only gemma's JSON output for the long Python script truncated.
+- Fixture 007 (`permissions.ask`) scored 8.6/10 with both backends — validates the v0.3 form-selection fix works as designed across model families.
 
 ## [0.2.0] — 2026-05-22
 
