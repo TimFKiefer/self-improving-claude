@@ -1,114 +1,76 @@
 # self-improving-claude
 
-> A Claude Code plugin that turns the bugs you just saw into the hooks that prevent the next ones.
+> A Claude Code plugin that turns the bugs you just saw into the hooks that prevent the next ones — per-project guardrails proposed by Claude itself, installed only with your explicit approval.
 
-**Status:** v0.2.0 — `/improve-init` (proactive scan) AND `/improve` (reactive) both work end-to-end. Eval harness with 5 fixtures + code & model graders + first committed baseline (gemma4 via Ollama).
-
----
+**Status:** v0.3.0 — public release.
 
 ## What it does
 
-You're working in Claude Code. Claude does something you don't want again — runs the wrong test command, edits a file it shouldn't, forgets a migration step. You type `/improve-init`. The plugin reviews your project, your past session transcripts, and a bundled telemetry log, then proposes a set of guardrails (hooks, `permissions.deny` rules, or `CLAUDE.md` notes) with **per-proposal explicit approval**. Approved guardrails are written into your project's `.claude/` directory. Restart Claude Code and they take effect.
+Claude Code is powerful by default, but every project has its own footguns. A test command that's `pnpm test:ci` not `pnpm test`. A generated directory that should never be hand-edited. A push command that should always require human confirmation. A constant rename that needs a callers-grep first.
 
-It's a Claude Code add-on that makes Claude Code measurably better at *your* project, the moment you notice it isn't.
+`self-improving-claude` watches your Claude Code sessions, then — when you ask — proposes a tailored set of guardrails for THIS project: `permissions.deny` rules, `permissions.ask` prompts, hooks, or `CLAUDE.md` notes. You approve each one individually. The plugin generates the code; you decide what installs.
+
+Three commands:
+
+| Command | When to use |
+|---|---|
+| `/improve` | Right after seeing Claude do something you don't want again. Uses the live conversation as primary context. |
+| `/improve-init` | First time, or periodic full sweep. Reads your project's code, recent session transcripts, and the bundled telemetry log. |
+| `/improve-uninstall` | Cleanly remove the plugin's footprint from THIS project (settings.json entries, generated scripts, optionally telemetry). The plugin itself stays installed. |
 
 ## Install
 
-### One-session use (recommended for v0.1)
+```bash
+# Add this repo as a marketplace
+claude plugin marketplace add github:tim/self-improving-claude
 
-Clone the repo, then start Claude Code with the plugin loaded for the current session:
+# Install the plugin
+claude plugin install self-improving-claude
+
+# Restart Claude Code so the plugin loads
+exit && claude
+```
+
+Inside any session: type `/improve-init` to run a first scan.
+
+### Local dev / per-session use
+
+If you're hacking on the plugin itself, clone the repo and use `--plugin-dir`:
 
 ```bash
 git clone <this-repo> ~/code/self-improving-claude
-claude --plugin-dir ~/code/self-improving-claude
+claude --plugin-dir ~/code/self-improving-claude/plugin
 ```
 
-That's it. The `/improve-init` command is available immediately and the bundled telemetry hook runs for every tool call in this session. No registration, no symlinks, no marketplace setup.
-
-Optional: validate the plugin manifest first:
+Or alias it:
 
 ```bash
-claude plugin validate ~/code/self-improving-claude
-# → ✔ Validation passed
+echo 'alias claude="command claude --plugin-dir ~/code/self-improving-claude/plugin"' >> ~/.zshrc
 ```
 
-### Per-session forever (cheapest persistent setup)
+## How it works
 
-Wrap the flag in a shell alias so every `claude` invocation loads the plugin:
+When you run `/improve` or `/improve-init`, the plugin's orchestrator skill:
 
-```bash
-echo 'alias claude="command claude --plugin-dir ~/code/self-improving-claude"' >> ~/.zshrc
-source ~/.zshrc
-```
+1. **Reads what already exists** in your project: `CLAUDE.md`, `.claude/settings.json`, the bundled telemetry log, recent session transcripts.
+2. **Identifies up to 5 candidate guardrails** based on what it sees (a chat message describing a bug, repeated tool-call failures, project conventions encoded in CLAUDE.md, etc.).
+3. **For each candidate, picks the lightest viable form:**
+   - `permissions.deny` rule (cheapest)
+   - `permissions.ask` rule (built-in Claude Code asks you each time)
+   - prompt-based hook (LLM evaluates each tool call)
+   - command hook on PreToolUse (deterministic block)
+   - command hook on PostToolUse (surface context after action)
+   - `CLAUDE.md` note (last resort, taste-level only)
+4. **Self-critiques** the draft against an explicit rubric. Drops candidates that don't measure up.
+5. **Walks you through approval** one at a time. You see the actual code, the rationale, where it merges into your `.claude/settings.json`. Approve, edit, or skip per candidate.
+6. **Writes approved files** to `.claude/hooks/` and merges entries into `.claude/settings.json` (defensively — never overwrites your existing config).
+7. **Tells you to restart Claude Code** so the new hooks load.
 
-(Use `~/.bashrc` for bash.)
+## Telemetry & privacy
 
-### Permanent install via marketplace
+The plugin installs one passive telemetry hook that logs summarized tool usage to `.claude/self-improving-claude/telemetry.jsonl` in each project where Claude Code is active.
 
-Coming in a later release — requires the plugin to live in a `plugins/<name>/` subdirectory of a marketplace root, which is a structural change deferred until publishing to GitHub.
-
-## Usage
-
-### `/improve-init`
-
-Run inside any project you'd like to harden. The plugin will:
-
-1. Read your project's `CLAUDE.md`, manifest files, and a sampled set of source files.
-2. Read recent past-session transcripts and the bundled telemetry log (if present).
-3. Identify up to 5 candidate guardrails.
-4. For each candidate, propose the lightest viable form (`permissions.deny` rule, prompt-based hook, command hook, or `CLAUDE.md` note).
-5. Walk you through them one at a time — you approve, reject, or edit each.
-6. Write approved files to your project's `.claude/hooks/` and merge entries into `.claude/settings.json`.
-7. Tell you to restart Claude Code so the new hooks load.
-
-Optional scoped invocation:
-
-```
-/improve-init "focus on the queries directory"
-```
-
-### `/improve`
-
-Run *right after* seeing Claude do something you don't want again. Unlike `/improve-init`, this command uses the **current conversation** as its primary signal — the bug you just saw is already in scrollback, and the orchestrator looks there first.
-
-```
-/improve
-/improve "add a guardrail against unbounded recursion"
-/improve "the foo-hook just blocked something legit"
-```
-
-Accepts free-text args for directives or feedback; otherwise scans recent chat for the most-recent observable problem.
-
-### Eval harness
-
-`evals/` is a dev-only measurement substrate for the orchestrator's proposal quality. Five fixtures (`evals/fixtures/001-005/`) plant known problems; the runner asks the model to propose guardrails and grades them with a deterministic code-grader (form/event/matcher/syntax/sentinel/keywords) plus a model-grader (LLM judges substance).
-
-Defaults to local Ollama (no API key needed):
-
-```bash
-pip install -r requirements-dev.txt
-python3 -m evals.run                    # uses gemma4:e4b by default (~5 min)
-python3 -m evals.run --entry 004-...    # just one entry
-```
-
-Switch backends:
-
-```bash
-EVAL_BACKEND=anthropic ANTHROPIC_API_KEY=sk-... python3 -m evals.run
-EVAL_BACKEND=ollama OLLAMA_MODEL=qwen3.5:9b python3 -m evals.run
-```
-
-Baseline: `evals/results/2026-05-22-baseline.json` — code 9.3/10, model 6.2/10 (gemma4:e4b). Future SKILL.md changes should be paired with delta scores so we know whether they regress or improve quality.
-
-### Telemetry hook
-
-The plugin installs one always-on hook — `PostToolUse: "*"` — that logs summarized tool usage to `.claude/self-improving-claude/telemetry.jsonl` inside each project where Claude Code is active. Logged fields per call:
-
-```jsonl
-{"ts": "2026-05-22T14:33:01Z", "tool": "Bash", "args_summary": "pnpm test", "outcome": {"exit_code": 1, "stderr_head": "ENOENT..."}}
-```
-
-**Redaction is strict** (tested in `scripts/tests/test_telemetry.py`):
+**Redaction is strict** (tested in `plugin/scripts/tests/test_telemetry.py`):
 
 - File `Read`/`Write`/`Edit` log only the path, never content.
 - `Bash` logs the first 80 chars of the command and (only on non-zero exit) the first 200 chars of stderr.
@@ -116,31 +78,46 @@ The plugin installs one always-on hook — `PostToolUse: "*"` — that logs summ
 - `WebFetch` logs only the URL host — never query strings.
 - `Task`/`TodoWrite` log type/counts only — never the prompt or todo content.
 
-The script silently no-ops on any unexpected error — it must never break Claude Code's tool execution.
+In v0.3 the telemetry hook also captures session boundaries (`SessionStart`), compaction events (`PreCompact`), and permission/idle notifications (`Notification`) — these give `/improve-init` richer signal to mine.
 
-If you want to disable telemetry entirely, remove the `PostToolUse` entry whose `name` is `self-improving-claude/telemetry` from your `.claude/settings.json` (or just don't enable the plugin).
+The log rotates at session end (renamed to `telemetry.<YYYYMMDD-HHMMSS>.jsonl`, fresh empty file for the next session).
 
-## What's installed where
+**All telemetry stays on your local machine.** Nothing is sent anywhere.
 
-| Location | What |
-|---|---|
-| Plugin directory (read-only) | `.claude-plugin/plugin.json`, skills, bundled telemetry script. Plugin updates touch only this. |
-| Your project's `.claude/hooks/` | Generated hook scripts (you own these). |
-| Your project's `.claude/settings.json` | Plugin-added entries carry `"name": "self-improving-claude/<slug>"` so you can find/edit/remove them. |
-| Your project's `.claude/self-improving-claude/telemetry.jsonl` | The redacted telemetry log. |
+## Inspecting & troubleshooting
+
+Use Claude Code's built-in commands:
+
+- `/hooks` — list all currently-loaded hooks (yours + plugins')
+- `/memory` — open and edit your project's `CLAUDE.md`
+- `claude plugin list` — show installed plugins
+- `claude --debug` — verbose logging, including hook execution
+- `claude plugin uninstall self-improving-claude` — remove the plugin itself (does NOT touch your project's `.claude/` directory — for that, use `/improve-uninstall`)
+
+If a generated hook ever misfires:
+
+```
+/improve "the <name> hook just blocked something legit"
+```
+
+This is feedback-mode — it logs your complaint to `.claude/self-improving-claude/feedback.jsonl` and narrows the affected hook automatically.
+
+## Design docs & evals
+
+- `docs/superpowers/specs/` — full design specs for v0.1, v0.2, v0.3
+- `docs/superpowers/plans/` — implementation plans
+- `docs/knowledge/` — distilled Claude Code course material that grounds the design
+- `docs/anthropic-marketplace-pr.md` — materials for publishing to the official marketplace
+- `evals/` — dev-only eval harness. Run `pip install -r requirements-dev.txt && python3 -m evals.run` to reproduce the baseline (uses local Ollama by default; cloud Anthropic via `EVAL_BACKEND=anthropic`).
+
+Baselines committed to `evals/results/`.
 
 ## Roadmap
 
 - **v0.1** — `/improve-init` proactive scan, per-proposal approval, bundled telemetry hook.
-- **v0.2** (current) — `/improve` reactive mode; `evals/` harness with code + model graders + committed scored baselines.
-- **v0.3+** — formal feedback channel (`/improve "the foo-hook blocked something legit"` becomes a structured log), expanded eval coverage, marketplace publish, larger reference baseline (Haiku/Sonnet).
-
-## Design docs
-
-- `docs/superpowers/specs/2026-05-22-self-improving-claude-design.md` — full design spec.
-- `docs/knowledge/` — distilled Claude Code course material grounding the design.
-- `docs/superpowers/plans/2026-05-22-self-improving-claude-v0.1.md` — v0.1 implementation plan.
-- `docs/superpowers/plans/2026-05-22-self-improving-claude-v0.2.md` — v0.2 implementation plan.
+- **v0.2** — `/improve` reactive mode, eval harness with 5 fixtures + code & model graders.
+- **v0.3** (current) — public release: marketplace install, hidden orchestrator, `permissions.ask` as form option, multi-event telemetry, `/improve-uninstall`, formalized feedback channel, 7-fixture eval baseline.
+- **v0.4+** — opt-in Stop-hook auto-collect (proactive pattern detection), conflict-resolution UX expansion, 10–20 eval entries, Anthropic-marketplace PR.
 
 ## License
 

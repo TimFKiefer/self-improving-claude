@@ -528,12 +528,24 @@ Exit criteria: a user can install the plugin, run `/improve-init`, see a sensibl
 - ✅ Orchestrator's Step 4 biases toward `"type": "prompt"` where the event supports it (already in v0.1 rubric; baseline confirms it).
 - 🎁 Bonus: pluggable eval backend (`EVAL_BACKEND={ollama|anthropic}`) — defaults to local Ollama so the eval runs without an API key.
 
-### v0.3.0+ — polish
+### v0.3.0 — "public release" (✅ shipped 2026-05-23)
 
-- Feedback channel formalized: `/improve "the foo-hook blocked something legit"` logs to `.claude/self-improving-claude/feedback.jsonl`; next run reads it.
-- Conflict UX (keep/replace/skip) for matcher overlaps.
+- ✅ Marketplace install (repo became a single-plugin marketplace).
+- ✅ Orchestrator hidden from `/` menu (inline-duplication fallback — `@../` resolution probe failed).
+- ✅ `permissions.ask` added as 5th recognized guardrail form.
+- ✅ Multi-event telemetry (PostToolUse + Notification + PreCompact + SessionStart) + SessionEnd inline-bash rotation.
+- ✅ Feedback channel formalized — `feedback.jsonl` persisted, target hook modified in-place.
+- ✅ `/improve-uninstall` slash command.
+- ✅ 7-fixture eval baseline rerun (gemma4; Haiku deferred to user).
+- ✅ Public README + CHANGELOG + Anthropic-marketplace PR materials.
+
+### v0.4.0+ — polish (deferred from earlier roadmap)
+
+- Opt-in Stop-hook auto-collect (proactive pattern detection — deferred from v0.3 as YAGNI until dogfood evidence appears).
+- Conflict UX (keep/replace/skip) for matcher overlaps — fixture + manual smoke test.
 - 10–20 eval entries; documented score thresholds.
 - (Stretch) auto-rewind investigation.
+- Haiku baseline rerun (when user has API key available).
 
 ---
 
