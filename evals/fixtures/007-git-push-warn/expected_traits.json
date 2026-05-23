@@ -1,0 +1,5 @@
+{
+  "form": "permissions.ask",
+  "rule_pattern_must_contain": "Bash(git push",
+  "rationale_must_mention": ["git push", "confirm"]
+}

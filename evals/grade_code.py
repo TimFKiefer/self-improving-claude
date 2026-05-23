@@ -37,9 +37,13 @@ def _check_event_matches(p: dict, e: dict) -> int:
 
 
 def _check_matcher_matches(p: dict, e: dict) -> int:
-    if "matcher" not in e:
-        return 10
-    return 10 if p.get("matcher") == e.get("matcher") else 0
+    if "matcher" in e:
+        return 10 if p.get("matcher") == e.get("matcher") else 0
+    if "matcher_must_include" in e:
+        m = p.get("matcher", "") or ""
+        required = e["matcher_must_include"]
+        return 10 if all(piece in m for piece in required) else 0
+    return 10
 
 
 def _check_script_parses(p: dict, e: dict) -> int:
@@ -86,6 +90,16 @@ def _check_rationale_keywords(p: dict, e: dict) -> int:
     return 10 if all(kw.lower() in rationale for kw in required) else 0
 
 
+def _check_rule_pattern(p: dict, e: dict) -> int:
+    """For permissions.ask / permissions.deny proposals, verify the rule string."""
+    if "rule_pattern" in e:
+        return 10 if p.get("rule") == e["rule_pattern"] else 0
+    if "rule_pattern_must_contain" in e:
+        rule = p.get("rule", "") or ""
+        return 10 if e["rule_pattern_must_contain"] in rule else 0
+    return 10
+
+
 _CHECKS = {
     "form_matches": _check_form_matches,
     "event_matches": _check_event_matches,
@@ -93,6 +107,7 @@ _CHECKS = {
     "script_parses": _check_script_parses,
     "sentinel_format": _check_sentinel_format,
     "rationale_keywords": _check_rationale_keywords,
+    "rule_pattern": _check_rule_pattern,
 }
 
 

@@ -64,6 +64,31 @@
         "matcher": "Write|Edit|MultiEdit",
         "rationale_must_mention": ["ruff", "format"]
       }
+    },
+    {
+      "id": "006-rename-callers",
+      "trigger": "improve",
+      "user_args": "add a hook that shows all references when I rename an exported identifier",
+      "fixture": "fixtures/006-rename-callers",
+      "planted_problem": "Claude renamed FILE_READ_TOOL_NAME from 'Read' to 'View' without grepping for hardcoded callers; ~15 places broke silently. User wants a guardrail that surfaces all references of an exported identifier whenever its definition line is edited.",
+      "expected_hook_traits": {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher_must_include": ["Edit", "MultiEdit"],
+        "rationale_must_mention": ["export", "caller"]
+      }
+    },
+    {
+      "id": "007-git-push-warn",
+      "trigger": "improve-init",
+      "user_args": "",
+      "fixture": "fixtures/007-git-push-warn",
+      "planted_problem": "Claude sometimes wants to git push from inside the agent. User wants a human in the loop for every push — not a hard block, just confirmation.",
+      "expected_hook_traits": {
+        "form": "permissions.ask",
+        "rule_pattern_must_contain": "Bash(git push",
+        "rationale_must_mention": ["git push", "confirm"]
+      }
     }
   ]
 }

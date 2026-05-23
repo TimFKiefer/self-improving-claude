@@ -129,3 +129,68 @@ def test_grade_script_lang_javascript_parses():
     result = grade_code(proposal, EXPECTED_001)
     # As long as the JS parses, the script_parses check should pass.
     assert result["checks"]["script_parses"] == 10
+
+
+def test_grade_matcher_must_include_passes_on_subset_match():
+    proposal = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Edit|MultiEdit",
+        "script": "import sys\nsys.exit(0)\n",
+        "script_lang": "python",
+        "rationale": "After editing an export, show callers.",
+        "sentinel_name": "self-improving-claude/grep-callers",
+    }
+    expected = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher_must_include": ["Edit", "MultiEdit"],
+        "rationale_must_mention": ["export", "caller"],
+    }
+    result = grade_code(proposal, expected)
+    assert result["checks"]["matcher_matches"] == 10
+
+
+def test_grade_matcher_must_include_fails_when_missing():
+    proposal = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Write",
+        "script": "import sys\nsys.exit(0)\n",
+        "script_lang": "python",
+        "rationale": "After editing an export, show callers.",
+        "sentinel_name": "self-improving-claude/grep-callers",
+    }
+    expected = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher_must_include": ["Edit", "MultiEdit"],
+        "rationale_must_mention": ["export", "caller"],
+    }
+    result = grade_code(proposal, expected)
+    assert result["checks"]["matcher_matches"] == 0
+
+
+def test_grade_permissions_ask_proposal():
+    proposal = {
+        "form": "permissions.ask",
+        "rule": "Bash(git push:*)",
+        "rationale": "Causes Claude Code to confirm before every git push.",
+    }
+    expected = {
+        "form": "permissions.ask",
+        "rule_pattern_must_contain": "Bash(git push",
+        "rationale_must_mention": ["git push", "confirm"],
+    }
+    result = grade_code(proposal, expected)
+    assert result["mean"] >= 8.0
+    assert result["checks"]["form_matches"] == 10
+    assert result["checks"]["rule_pattern"] == 10
+    assert result["checks"]["rationale_keywords"] == 10
+
+
+def test_grade_rule_pattern_must_contain_substring():
+    proposal = {"form": "permissions.deny", "rule": "Read(**/.env.production)", "rationale": "Block reads of .env files"}
+    expected = {"form": "permissions.deny", "rule_pattern_must_contain": ".env", "rationale_must_mention": [".env"]}
+    result = grade_code(proposal, expected)
+    assert result["checks"]["rule_pattern"] == 10

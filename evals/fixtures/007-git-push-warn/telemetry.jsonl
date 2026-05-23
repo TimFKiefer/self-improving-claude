@@ -1,0 +1,3 @@
+{"ts":"2026-05-22T10:00:00Z","event":"tool","tool":"Bash","args_summary":"git push origin feature/foo","outcome":{"exit_code":0}}
+{"ts":"2026-05-22T11:30:00Z","event":"tool","tool":"Bash","args_summary":"git push origin main","outcome":{"exit_code":0}}
+{"ts":"2026-05-22T14:15:00Z","event":"tool","tool":"Bash","args_summary":"git push --force origin main","outcome":{"exit_code":0}}
