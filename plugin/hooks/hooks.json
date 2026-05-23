@@ -1,5 +1,5 @@
 {
-  "description": "self-improving-claude — passive telemetry hook that logs summarized tool usage for /improve-init",
+  "description": "self-improving-claude — multi-event telemetry + SessionEnd rotation",
   "hooks": {
     "PostToolUse": [
       {
@@ -9,6 +9,58 @@
             "name": "self-improving-claude/telemetry",
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "self-improving-claude/telemetry-notification",
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "self-improving-claude/telemetry-precompact",
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "self-improving-claude/telemetry-sessionstart",
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "self-improving-claude/rotate-telemetry",
+            "type": "command",
+            "command": "f=\"${CLAUDE_PROJECT_DIR}/.claude/self-improving-claude/telemetry.jsonl\"; [ -f \"$f\" ] && mv \"$f\" \"${f%.jsonl}.$(date +%Y%m%d-%H%M%S).jsonl\" && touch \"$f\" || true",
             "timeout": 5
           }
         ]

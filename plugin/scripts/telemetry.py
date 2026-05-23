@@ -25,13 +25,36 @@ SECRET_PATTERN_RE = re.compile(
 
 
 def summarize(event: dict) -> dict:
-    """Convert a raw hook event into a JSONL row honoring spec §3.4 redaction rules."""
+    """Convert a raw hook event into a JSONL row honoring spec §3.4 redaction rules.
+
+    Branches on hook_event_name to emit different row shapes for tool calls,
+    notifications, compactions, and session boundaries. Unknown events get a
+    minimal marker row.
+    """
+    hook_event = event.get("hook_event_name", "")
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if hook_event == "PostToolUse":
+        return _summarize_tool(event, ts)
+    if hook_event == "Notification":
+        return {"ts": ts, "event": "notification"}
+    if hook_event == "PreCompact":
+        return {"ts": ts, "event": "compact"}
+    if hook_event == "SessionStart":
+        return {"ts": ts, "event": "session_start"}
+
+    return {"ts": ts, "event": "other"}
+
+
+def _summarize_tool(event: dict, ts: str) -> dict:
+    """Summarize a PostToolUse event with per-tool redaction (spec §3.4)."""
     tool = event.get("tool_name", "")
     tool_input = event.get("tool_input") or {}
     tool_response = event.get("tool_response") or {}
 
     row: dict = {
-        "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "ts": ts,
+        "event": "tool",
         "tool": tool,
     }
 
@@ -44,32 +67,25 @@ def summarize(event: dict) -> dict:
             stderr = (tool_response.get("stderr") or "")[:200]
             outcome["stderr_head"] = stderr
         row["outcome"] = outcome
-
     elif tool in ("Read", "Write", "Edit", "MultiEdit"):
         row["args_summary"] = tool_input.get("file_path", "")
-
     elif tool in ("Glob", "Grep"):
         pattern = tool_input.get("pattern", "") or ""
         if SECRET_PATTERN_RE.search(pattern):
             row["args_summary"] = "<redacted-secret-pattern>"
         else:
             row["args_summary"] = pattern
-
     elif tool == "WebFetch":
         url = tool_input.get("url", "") or ""
         try:
             row["args_summary"] = urlparse(url).hostname or ""
         except Exception:
             row["args_summary"] = ""
-
     elif tool == "Task":
         row["args_summary"] = tool_input.get("subagent_type", "")
-
     elif tool == "TodoWrite":
         todos = tool_input.get("todos") or []
         row["args_summary"] = f"{len(todos)} todos"
-
-    # Unknown tools (incl. MCP) → name + ts only.
 
     return row
 

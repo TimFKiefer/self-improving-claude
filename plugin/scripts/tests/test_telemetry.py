@@ -40,6 +40,7 @@ def run_telemetry(payload: dict, project_dir: Path) -> dict | None:
 
 def test_bash_logs_summary_with_exit_code(tmp_path):
     payload = {
+        "hook_event_name": "PostToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": "pnpm test"},
         "tool_response": {"exit_code": 1, "stderr": "ENOENT: missing module foo"},
@@ -54,7 +55,8 @@ def test_bash_logs_summary_with_exit_code(tmp_path):
 
 def test_bash_truncates_long_command_to_80_chars(tmp_path):
     long_cmd = "echo " + "x" * 200
-    payload = {"tool_name": "Bash", "tool_input": {"command": long_cmd}, "tool_response": {"exit_code": 0}}
+    payload = {"hook_event_name": "PostToolUse",
+        "tool_name": "Bash", "tool_input": {"command": long_cmd}, "tool_response": {"exit_code": 0}}
     row = run_telemetry(payload, tmp_path)
     assert len(row["args_summary"]) <= 80
 
@@ -62,6 +64,7 @@ def test_bash_truncates_long_command_to_80_chars(tmp_path):
 def test_bash_truncates_stderr_to_200_chars(tmp_path):
     long_err = "x" * 1000
     payload = {
+        "hook_event_name": "PostToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": "false"},
         "tool_response": {"exit_code": 1, "stderr": long_err},
@@ -72,6 +75,7 @@ def test_bash_truncates_stderr_to_200_chars(tmp_path):
 
 def test_bash_omits_stderr_on_success(tmp_path):
     payload = {
+        "hook_event_name": "PostToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": "true"},
         "tool_response": {"exit_code": 0, "stderr": "warning: foo"},
@@ -84,6 +88,7 @@ def test_bash_omits_stderr_on_success(tmp_path):
 
 def test_read_logs_path_only_not_content(tmp_path):
     payload = {
+        "hook_event_name": "PostToolUse",
         "tool_name": "Read",
         "tool_input": {"file_path": "/secret/.env"},
         "tool_response": {"contents": "API_KEY=sk-leaked"},
@@ -96,6 +101,7 @@ def test_read_logs_path_only_not_content(tmp_path):
 
 def test_write_logs_path_only(tmp_path):
     payload = {
+        "hook_event_name": "PostToolUse",
         "tool_name": "Write",
         "tool_input": {"file_path": "/code/foo.py", "content": "PASSWORD=hunter2"},
     }
@@ -106,6 +112,7 @@ def test_write_logs_path_only(tmp_path):
 
 def test_edit_logs_path_only(tmp_path):
     payload = {
+        "hook_event_name": "PostToolUse",
         "tool_name": "Edit",
         "tool_input": {"file_path": "/code/foo.py", "old_string": "x", "new_string": "y"},
     }
@@ -114,25 +121,29 @@ def test_edit_logs_path_only(tmp_path):
 
 
 def test_grep_logs_pattern(tmp_path):
-    payload = {"tool_name": "Grep", "tool_input": {"pattern": "TODO", "path": "/code"}}
+    payload = {"hook_event_name": "PostToolUse",
+        "tool_name": "Grep", "tool_input": {"pattern": "TODO", "path": "/code"}}
     row = run_telemetry(payload, tmp_path)
     assert row["args_summary"] == "TODO"
 
 
 def test_grep_redacts_secret_pattern(tmp_path):
-    payload = {"tool_name": "Grep", "tool_input": {"pattern": "API_KEY=sk-foo", "path": "/code"}}
+    payload = {"hook_event_name": "PostToolUse",
+        "tool_name": "Grep", "tool_input": {"pattern": "API_KEY=sk-foo", "path": "/code"}}
     row = run_telemetry(payload, tmp_path)
     assert row["args_summary"] == "<redacted-secret-pattern>"
 
 
 def test_glob_logs_pattern(tmp_path):
-    payload = {"tool_name": "Glob", "tool_input": {"pattern": "**/*.py", "path": "/code"}}
+    payload = {"hook_event_name": "PostToolUse",
+        "tool_name": "Glob", "tool_input": {"pattern": "**/*.py", "path": "/code"}}
     row = run_telemetry(payload, tmp_path)
     assert row["args_summary"] == "**/*.py"
 
 
 def test_webfetch_logs_host_only_strips_query(tmp_path):
-    payload = {"tool_name": "WebFetch", "tool_input": {"url": "https://api.example.com/users?token=abc123&q=foo"}}
+    payload = {"hook_event_name": "PostToolUse",
+        "tool_name": "WebFetch", "tool_input": {"url": "https://api.example.com/users?token=abc123&q=foo"}}
     row = run_telemetry(payload, tmp_path)
     assert row["args_summary"] == "api.example.com"
     assert "abc123" not in json.dumps(row)
@@ -140,6 +151,7 @@ def test_webfetch_logs_host_only_strips_query(tmp_path):
 
 def test_task_logs_subagent_type_only(tmp_path):
     payload = {
+        "hook_event_name": "PostToolUse",
         "tool_name": "Task",
         "tool_input": {"subagent_type": "Explore", "prompt": "secret prompt content"},
     }
@@ -150,6 +162,7 @@ def test_task_logs_subagent_type_only(tmp_path):
 
 def test_todowrite_logs_count_only(tmp_path):
     payload = {
+        "hook_event_name": "PostToolUse",
         "tool_name": "TodoWrite",
         "tool_input": {"todos": [{"content": "secret"}, {"content": "stuff"}, {"content": "here"}]},
     }
@@ -159,9 +172,14 @@ def test_todowrite_logs_count_only(tmp_path):
 
 
 def test_unknown_tool_logs_name_and_ts_only(tmp_path):
-    payload = {"tool_name": "SomeMcpTool", "tool_input": {"anything": "goes here"}}
+    payload = {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "SomeMcpTool",
+        "tool_input": {"anything": "goes here"},
+    }
     row = run_telemetry(payload, tmp_path)
     assert row["tool"] == "SomeMcpTool"
+    assert row["event"] == "tool"
     assert "args_summary" not in row
 
 
@@ -181,7 +199,8 @@ def test_malformed_json_does_not_crash(tmp_path):
 
 def test_creates_parent_directory_if_missing(tmp_path):
     # tmp_path has no .claude/ subdir initially
-    payload = {"tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_response": {"exit_code": 0}}
+    payload = {"hook_event_name": "PostToolUse",
+        "tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_response": {"exit_code": 0}}
     row = run_telemetry(payload, tmp_path)
     assert row is not None
     log_path = tmp_path / ".claude" / "self-improving-claude" / "telemetry.jsonl"
@@ -189,8 +208,10 @@ def test_creates_parent_directory_if_missing(tmp_path):
 
 
 def test_appends_not_overwrites(tmp_path):
-    payload1 = {"tool_name": "Bash", "tool_input": {"command": "first"}, "tool_response": {"exit_code": 0}}
-    payload2 = {"tool_name": "Bash", "tool_input": {"command": "second"}, "tool_response": {"exit_code": 0}}
+    payload1 = {"hook_event_name": "PostToolUse",
+        "tool_name": "Bash", "tool_input": {"command": "first"}, "tool_response": {"exit_code": 0}}
+    payload2 = {"hook_event_name": "PostToolUse",
+        "tool_name": "Bash", "tool_input": {"command": "second"}, "tool_response": {"exit_code": 0}}
     run_telemetry(payload1, tmp_path)
     run_telemetry(payload2, tmp_path)
     log_path = tmp_path / ".claude" / "self-improving-claude" / "telemetry.jsonl"
@@ -204,7 +225,8 @@ def test_missing_project_dir_silent_fail(tmp_path):
     """If CLAUDE_PROJECT_DIR is unset, telemetry should silently no-op."""
     env = os.environ.copy()
     env.pop("CLAUDE_PROJECT_DIR", None)
-    payload = {"tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_response": {"exit_code": 0}}
+    payload = {"hook_event_name": "PostToolUse",
+        "tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_response": {"exit_code": 0}}
     result = subprocess.run(
         [sys.executable, str(SCRIPT)],
         input=json.dumps(payload),
@@ -235,6 +257,7 @@ def test_empty_stdin_does_not_write(tmp_path):
 
 def test_multiedit_logs_path_only(tmp_path):
     payload = {
+        "hook_event_name": "PostToolUse",
         "tool_name": "MultiEdit",
         "tool_input": {"file_path": "/code/foo.py", "edits": [{"old_string": "x", "new_string": "y"}]},
     }
@@ -243,13 +266,73 @@ def test_multiedit_logs_path_only(tmp_path):
 
 
 def test_grep_redacts_token_pattern(tmp_path):
-    payload = {"tool_name": "Grep", "tool_input": {"pattern": "TOKEN=abc123", "path": "/code"}}
+    payload = {"hook_event_name": "PostToolUse",
+        "tool_name": "Grep", "tool_input": {"pattern": "TOKEN=abc123", "path": "/code"}}
     row = run_telemetry(payload, tmp_path)
     assert row["args_summary"] == "<redacted-secret-pattern>"
 
 
 def test_grep_does_not_redact_substring_match(tmp_path):
     """Word-boundary anchoring means `access_token` (no \\b before `token`) is not redacted."""
-    payload = {"tool_name": "Grep", "tool_input": {"pattern": "access_token", "path": "/code"}}
+    payload = {"hook_event_name": "PostToolUse",
+        "tool_name": "Grep", "tool_input": {"pattern": "access_token", "path": "/code"}}
     row = run_telemetry(payload, tmp_path)
     assert row["args_summary"] == "access_token"  # not redacted
+
+
+def test_notification_event_logged(tmp_path):
+    payload = {
+        "hook_event_name": "Notification",
+        "session_id": "abc",
+        "cwd": str(tmp_path),
+    }
+    row = run_telemetry(payload, tmp_path)
+    assert row["event"] == "notification"
+    assert "ts" in row
+
+
+def test_precompact_event_logged(tmp_path):
+    payload = {
+        "hook_event_name": "PreCompact",
+        "session_id": "abc",
+        "cwd": str(tmp_path),
+    }
+    row = run_telemetry(payload, tmp_path)
+    assert row["event"] == "compact"
+    assert "ts" in row
+
+
+def test_sessionstart_event_logged(tmp_path):
+    payload = {
+        "hook_event_name": "SessionStart",
+        "session_id": "abc",
+        "cwd": str(tmp_path),
+    }
+    row = run_telemetry(payload, tmp_path)
+    assert row["event"] == "session_start"
+    assert "ts" in row
+
+
+def test_existing_posttooluse_event_still_tagged(tmp_path):
+    """Existing PostToolUse payloads should now carry event='tool' field too."""
+    payload = {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "ls"},
+        "tool_response": {"exit_code": 0},
+    }
+    row = run_telemetry(payload, tmp_path)
+    assert row["event"] == "tool"
+    assert row["tool"] == "Bash"
+    assert row["args_summary"] == "ls"
+
+
+def test_unknown_event_silently_ignored(tmp_path):
+    """Unknown hook events should not crash, just write a minimal marker row."""
+    payload = {
+        "hook_event_name": "SomeFutureEvent",
+        "session_id": "abc",
+    }
+    row = run_telemetry(payload, tmp_path)
+    assert row["event"] == "other"
+    assert "ts" in row
