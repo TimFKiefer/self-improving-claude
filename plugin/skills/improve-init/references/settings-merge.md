@@ -69,3 +69,22 @@ A `permissions.deny` rule we add carries no marker (the rule string itself is de
 
 Good: `block-pnpm-test-watcher`, `format-on-write-python`, `gate-git-force-push`.
 Bad: `hook-1`, `MyHook`, `block-things`.
+
+---
+
+## Feedback log schema
+
+The orchestrator writes user-reported hook misfires to `${CLAUDE_PROJECT_DIR}/.claude/self-improving-claude/feedback.jsonl`. One JSON object per line:
+
+```jsonl
+{"ts":"2026-05-23T15:30:01Z","target":"self-improving-claude/block-pnpm-test-watcher","mode":"too-broad","complaint":"blocked legitimate `pnpm test --filter foo` command","resolution":"narrowed matcher from Bash to Bash(pnpm test) with --filter exception"}
+```
+
+Required fields:
+- `ts` — ISO-8601 UTC timestamp of the feedback event
+- `target` — sentinel `name` (`self-improving-claude/<slug>`) of the hook complained about
+- `mode` ∈ `{too-broad, false-positive, please-narrow, missed-case}`
+- `complaint` — user's verbatim feedback text (trim very long inputs to ~500 chars)
+- `resolution` — one-sentence description of what the orchestrator changed in response
+
+`/improve-init` reads feedback.jsonl on subsequent runs and applies extra scrutiny when proposing similar hooks: if a recent feedback row mentions a hook whose pattern resembles a new proposal, flag the new proposal for explicit user confirmation rather than auto-accepting on the rubric alone.

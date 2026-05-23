@@ -76,13 +76,39 @@ Frame questions as 2–4 options with one-line descriptions of each, ranked with
 
 ## Step 1 — Read the room
 
-Read `<user_directive>` and decide what kind of request you're handling. The three shapes that matter are:
+Read `<user_directive>` and classify the request. The four shapes that matter:
 
-- **default (empty)** → propose proactively from the available signals.
-- **directive** ("add a rule that prevents X") → propose specifically against X.
-- **feedback** ("the foo-hook blocked something legit") → refine an existing entry rather than adding new ones.
+- **default (empty)** — propose proactively from the available signals.
+- **directive** ("add a rule that prevents X") — propose specifically against X.
+- **feedback** ("the foo-hook just blocked something legit", "X is too broad", "narrow Y", "Z misses Q") — refine an existing entry rather than adding new ones. Persist the feedback for future runs.
+- **inquiry** — any other free-text — treat as a description of an observed problem the user wants prevented.
 
-If the directive sits genuinely between two of these (e.g. could be a directive OR a feedback note about an existing hook), use `AskUserQuestion` to clarify before going further. Otherwise, classify and continue.
+If the directive sits genuinely between two of these (e.g. could be a directive OR a feedback note about an existing hook), use `AskUserQuestion` to clarify before going further. Otherwise classify and continue.
+
+### Feedback-mode handling (when classified as feedback)
+
+When the user gives feedback about an existing hook:
+
+1. **Identify the target.** Match by sentinel name (`self-improving-claude/<slug>`) referenced in the user's message. If the user didn't name the hook, use `AskUserQuestion` to pick from the list in `<existing_hooks>`.
+
+2. **Persist the feedback.** Append a row to `${CLAUDE_PROJECT_DIR}/.claude/self-improving-claude/feedback.jsonl`:
+
+   ```jsonl
+   {"ts":"<ISO-8601 UTC>","target":"self-improving-claude/<slug>","mode":"<too-broad|false-positive|please-narrow|missed-case>","complaint":"<user's verbatim text>","resolution":"<one-sentence description of what you did>"}
+   ```
+
+   Create the parent directory if missing. Append, never overwrite. Each row on its own line.
+
+3. **Modify the target hook.** Based on the complaint mode:
+   - `too-broad` / `false-positive` — narrow the matcher (e.g. tighten `Bash` to `Bash(npm publish:*)` if the complaint is about npm publish), or add an explicit exception in the hook script body (return 0 early on the legit case the user named).
+   - `please-narrow` — same as above, prompt user for the specific narrowing if not obvious from their message.
+   - `missed-case` — broaden the matcher OR add a sibling check to cover the missed case.
+
+4. **Use the same defensive settings.json merge** as proposed hooks (see `@references/settings-merge.md`). Modify in place; never duplicate entries.
+
+5. **Do NOT propose new hooks** in feedback mode. Confirm the change with the user and exit (skip Steps 3-9 of this procedure).
+
+6. **In Step 10 (close-out)**, summarize what was changed and link to the feedback.jsonl line.
 
 ## Step 2 — Inspect before drafting
 
