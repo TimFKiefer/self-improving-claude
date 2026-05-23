@@ -98,16 +98,23 @@ Cap yourself at ~5 candidates per run. If you see more, surface the best ones an
 
 ## Step 4 — Choose the lightest form that does the job
 
-For each candidate, decide what shape the guardrail should take. The options, roughly from lightest to heaviest:
+For each candidate, consider these forms in order. Use the FIRST one that's *viable* for this rule:
 
-- `permissions.deny` rule — when a glob can express the rule uniformly
-- prompt-based hook (`"type": "prompt"`) — when the check needs reasoning AND the event supports prompt hooks (PreToolUse, Stop, SubagentStop, UserPromptSubmit)
-- command hook (`"type": "command"`) — when the check is fast and deterministic, or when the event doesn't support prompt hooks (PostToolUse, SessionStart, etc.)
-- a soft note that the user pastes into `CLAUDE.md` themselves — when the rule is taste-level, not safety-level
+1. **`permissions.deny`** — if a glob covers the action uniformly across tools AND it should be unconditionally blocked. Cheapest: no model call, no script, no user interaction.
+
+2. **`permissions.ask`** — if a glob covers the action AND the user is sometimes OK with it but wants to be the one to decide. Examples: `Bash(git push:*)`, `Bash(rm -rf:*)`, `Bash(npm publish:*)`. Built-in Claude Code prompts the user; we don't write any script or hook. Lighter than a prompt-hook because no LLM evaluation — the user decides directly. **This form is often missed** — use it whenever "warn and let me confirm" is the right semantic, not just "block."
+
+3. **Prompt-based hook** (`"type": "prompt"`) — if pre-condition *reasoning* is needed (recognizing intent across novel input shapes that globs can't express) AND the event supports prompt hooks (PreToolUse, Stop, SubagentStop, UserPromptSubmit).
+
+4. **Command-hook on PreToolUse** — if the check is fast and deterministic and must BLOCK the tool call.
+
+5. **Command-hook on PostToolUse** — if the check needs to SURFACE context (grep results, formatter output, type errors) back to Claude AFTER an action. Often the right answer for "after editing X, show Y." Cheap, deterministic, no model call. Don't skip this form when reasoning about hooks — it's frequently the right answer for "feed information back" rules.
+
+6. **Last resort: `CLAUDE.md` note** — only for taste-level preferences with zero enforcement need (e.g. "prefer pnpm over npm"). Never for ordering rules ("before X do Y") or context-surfacing rules ("after X show Y") — those need an enforceable form.
 
 Prefer the lighter form when both would work. Lighter means cheaper to run, easier to audit, less code to maintain. But don't strain to make a glob fit a rule that genuinely needs logic — the priority is a guide, not an algorithm.
 
-If you're genuinely on the fence between two forms for the same candidate (typically `permissions.deny` vs. a prompt hook), use `AskUserQuestion` to let the user pick — they know whether they'd rather have a stricter broad rule or a smarter narrow one.
+If you're genuinely on the fence between two forms for the same candidate (typically `permissions.deny` vs. `permissions.ask`, OR `permissions.ask` vs. prompt-hook, OR prompt-hook vs. command-hook), use `AskUserQuestion` to let the user pick — they know whether they'd rather have a stricter rule or a smarter one.
 
 ## Step 5 — Draft against the rubric
 

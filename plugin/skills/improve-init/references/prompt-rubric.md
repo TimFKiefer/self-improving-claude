@@ -6,7 +6,7 @@ Every proposal you draft must satisfy every item below before you show it to the
 
 1. **Grounded in observed behavior.** The proposal points to a specific event in `<recent_chat>` / `<telemetry_excerpt>` / `<project_snapshot>` — not a hypothetical. If you can't quote the evidence in one sentence, the candidate isn't strong enough.
 
-2. **Lightest viable form.** You chose the form (permissions.deny → prompt-hook → command-hook → CLAUDE.md note) by ruling out lighter options. The rationale states *why* a lighter form wouldn't work, if you didn't use one.
+2. **Lightest *viable* form.** The chosen form must actually enforce the rule. CLAUDE.md notes are NOT viable for rules of shape "before X do Y" or "after X show Y" — these need a hook (Pre/PostToolUse) or a `permissions` rule. A CLAUDE.md note that relies on the model remembering is not viable for any recurring failure mode. Use one of the lighter enforceable forms (`permissions.deny`, `permissions.ask`, prompt-hook, command-hook) unless the rule is purely a stylistic preference with no enforcement need. The rationale states *why* a lighter form wouldn't work, if you didn't use one.
 
 3. **One event, one matcher.** The hook binds to exactly one event (`PreToolUse`, `PostToolUse`, etc.) with a precise `matcher` (exact tool, an alternation that's tighter than `*`, or — only when truly universal — `*`).
 
