@@ -20,7 +20,7 @@ from evals.grade_code import grade_code
 from evals.grade_model import grade_model
 
 REPO_ROOT = EVALS_DIR.parent
-SKILL_REFS = REPO_ROOT / "skills" / "self-improving-claude" / "references"
+SKILL_REFS = REPO_ROOT / "plugin" / "skills" / "self-improving-claude" / "references"
 PROMPT_TEMPLATE_PATH = EVALS_DIR / "prompt_template.md"
 
 ORCHESTRATOR_MODEL = "claude-haiku-4-5-20251001"

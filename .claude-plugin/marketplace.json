@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "self-improving-claude",
+  "description": "Marketplace for the self-improving-claude plugin — turns the bugs you just saw into the hooks that prevent the next ones.",
+  "owner": {
+    "name": "Tim Kiefer",
+    "email": "tim.f.kief@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "self-improving-claude",
+      "description": "Proactive and reactive guardrail proposals for your Claude Code projects, with per-proposal approval.",
+      "author": {
+        "name": "Tim Kiefer",
+        "email": "tim.f.kief@gmail.com"
+      },
+      "category": "productivity",
+      "source": "./plugin"
+    }
+  ]
+}
