@@ -139,4 +139,133 @@ The proposal *had to use a hook* because `permissions.deny` can't distinguish `p
 
 ### Why it's good
 
-The proposal *picked prompt-hook over command-hook* because the check genuinely needs reasoning about `git push` invocation shape (origin name, branch, force flag combinations). Stays focused: one event, one matcher, prompt under 5 sentences. Sentinel name present. The rationale names the bug and explicitly says why a regex would be brittle.
+The proposal *picked prompt-hook over command-hook* because the check needs reasoning about `git push` invocation shape (origin name, branch, force flag combinations) that a regex would miss. Stays focused: one event, one matcher, prompt under 5 sentences. Sentinel name present.
+
+**Note:** in many cases a simpler `permissions.ask` rule (see Example 5) does the same job without any LLM evaluation. Prefer `permissions.ask` when "just ask the user every time" suffices; reach for prompt-hooks only when there's a meaningful classification the model can do that a glob can't (e.g. "block force-pushes to main but allow regular pushes to feature branches").
+
+---
+
+## Example 4 — Command hook on PostToolUse (surface context after action)
+
+### Observed problem
+
+> The user just changed an exported identifier's value (`export const X = 'old'` → `export const X = 'new'`) and several hardcoded callers across the codebase broke silently because the rename wasn't grepped first. A guardrail should surface all callers of an exported identifier whenever that identifier's definition line is edited.
+
+### Proposal
+
+**Form:** Command hook (`"type": "command"`)
+**Event:** `PostToolUse` (non-blocking — runs AFTER the edit, feeds context back via stderr)
+**Matcher:** `Edit|MultiEdit`
+**Script:** `.claude/hooks/grep-export-callers.py`
+
+```python
+#!/usr/bin/env python3
+"""After Edit/MultiEdit on a line that defines an exported identifier, grep
+for callers and feed the list back to Claude so it can verify consistency."""
+import json, re, subprocess, sys
+
+EXPORT_DEF = re.compile(
+    r"export\s+(?:const|let|var|function|class|type|interface|enum)\s+(\w+)"
+)
+
+def main():
+    try:
+        ev = json.load(sys.stdin)
+    except Exception:
+        return 0
+    if ev.get("tool_name") not in ("Edit", "MultiEdit"):
+        return 0
+    inp = ev.get("tool_input") or {}
+    edits = inp.get("edits") or [
+        {"old_string": inp.get("old_string", ""), "new_string": inp.get("new_string", "")}
+    ]
+
+    names: set[str] = set()
+    for e in edits:
+        for s in (e.get("old_string", ""), e.get("new_string", "")):
+            m = EXPORT_DEF.search(s)
+            if m:
+                names.add(m.group(1))
+
+    if not names:
+        return 0
+
+    for name in names:
+        try:
+            r = subprocess.run(
+                ["grep", "-rn", "--include=*.ts", "--include=*.tsx",
+                 "--include=*.js", "--include=*.jsx", name, "."],
+                capture_output=True, text=True, timeout=5,
+            )
+            hits = [l for l in r.stdout.splitlines() if l][:20]
+            if hits:
+                print(f"Export `{name}` touched. References still in tree:", file=sys.stderr)
+                for h in hits:
+                    print(f"  {h}", file=sys.stderr)
+                print("Verify these are consistent with your change.", file=sys.stderr)
+                return 2
+        except Exception:
+            pass
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+**Settings.json delta:**
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|MultiEdit",
+        "hooks": [
+          {
+            "name": "self-improving-claude/grep-export-callers",
+            "type": "command",
+            "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/grep-export-callers.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Rationale:** *Surfaces all callers after any Edit that touches an exported identifier definition; closes the failure mode where a rename lands without enumerating hardcoded usages. PostToolUse + grep is cheaper than a prompt hook and works on every Edit (not just renames the model recognizes ahead of time).*
+
+### Why it's good
+
+The proposal *picked PostToolUse command-hook over CLAUDE.md note* because the rule is "after editing X, show Y" — a context-surfacing rule that the orchestrator must enforce, not a taste-level preference. The script uses defensive `.get(...)`, exits 2 with stderr so Claude sees the grep results as feedback, stays under 60 LOC, carries the sentinel `name`, and runs only when an export-definition line is detected (no noise on unrelated edits).
+
+---
+
+## Example 5 — `permissions.ask` (when the user should decide each time)
+
+### Observed problem
+
+> The user noted that Claude sometimes wants to `git push` from inside the agent. Pushes to feature branches are usually fine, but pushes to `main` (especially `--force`) should always require explicit human confirmation. A blanket deny is too strict; a CLAUDE.md note is too lax; a prompt-hook would work but pays an LLM-call cost when a simpler form does the job.
+
+### Proposal
+
+**Form:** `permissions.ask` rule
+**Event:** N/A (permissions apply uniformly across tools)
+**Settings.json delta:**
+
+```json
+{
+  "permissions": {
+    "ask": [
+      "Bash(git push:*)"
+    ]
+  }
+}
+```
+
+**Rationale:** *Causes Claude Code to prompt the user for confirmation on every `git push` invocation regardless of arguments; no model call, no script, no hook latency — built-in Claude Code asks the user directly. Cheaper than a prompt-hook because the user's call is all the reasoning needed.*
+
+### Why it's good
+
+The proposal *ruled out the lighter form* (`permissions.deny` would block legitimate pushes), *ruled out the heavier form* (prompt-hook would do the same job but with an LLM evaluation per push). `permissions.ask` is the right semantic: "I want to be the one to decide." Built-in Claude Code handles the prompt; we don't author any code. One line, deterministic, exactly the right weight.
