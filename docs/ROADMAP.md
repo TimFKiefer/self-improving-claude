@@ -98,9 +98,44 @@ brainstorm  →  spec  →  plan (writing-plans)  →  execute (subagent-driven)
 
 ---
 
-### v0.3.3 — *In progress* (2026-05-24)
+### v0.3.3 — Measurement & correctness hygiene (2026-05-24)
 
-Small, non-structural slice from the v0.3.2 analysis. Companion plan at `docs/superpowers/plans/2026-05-24-self-improving-claude-v0.3.3.md`. Ships before v0.4 brainstorming starts.
+**Patch trigger:** v0.3.2's `imperative_stderr` extractor was blind to f-strings, bash `echo >&2`, and JS `console.error` — meaning v0.3.2's own Example 4 (which uses an f-string) would have silently passed the check no matter what wording it carried. v0.3.3 closes that and other measurement leaks before v0.4 starts depending on the numbers.
+
+**What landed:**
+- Per-language stderr literal extractor (Python f-strings, plain strings, bash, JS) — `imperative_stderr` now actually sees what it grades. 7 new tests.
+- `claude-cli` productized as `evals/client_claude_cli.py` (`EVAL_BACKEND=claude-cli`) — the Haiku/Sonnet/Opus baselines reproducible without `ANTHROPIC_API_KEY`. 5 mocked-subprocess tests.
+- Discriminating telemetry fields: `Notification.kind`, `PreCompact.reason`, `SessionStart.source`. 6 new tests.
+- Fixed dangling `@references/settings-merge.md` mention in `/improve-uninstall`.
+- Re-scored gemma baseline against 8-check grader (first re-score since v0.3.0): `evals/results/2026-05-24-v0.3.3-gemma.json` → code 6.1 / model 3.7. Drop vs v0.3 (7.1 code) is gemma JSON-truncation on fixtures 003+004, not a real regression — `imperative_stderr` scored 10 on all 5 parseable proposals.
+
+**Companion plan:** `docs/superpowers/plans/2026-05-24-self-improving-claude-v0.3.3.md`.
+
+---
+
+### v0.3.4 — Eval-measurement correctness + full-matrix baseline (2026-05-24)
+
+**Patch trigger:** v0.3.3 was measurement *hygiene*; v0.3.4 is measurement *correctness*. The eval needs to be trustworthy enough to gate the autonomous Karpathy loop the project is built around (commit-if-better / reset-if-worse) — and several latent scoring bugs would otherwise have let the loop optimize the wrong target.
+
+**What landed:**
+- **Code grade no longer rewards shape.** Non-applicable checks return `None` and are excluded from the mean (applicable-checks denominator). A wrong-form or no-op proposal can't collect free N/A points anymore. Surfaced and fixed a latent bug where `permissions.ask` was being penalized by the sentinel check (previously masked by the free-N/A-pass scheme).
+- **`imperative_stderr` scores intent, not exact tokens.** Accepts a clause-leading imperative verb in addition to the v0.3.1 banned/required tokens — still binary, still deterministic, but reads "Fix the reported issues before continuing" as compliant.
+- **Model grade stops counting truncation as 0.** `grade_model` asks for compact JSON, raises `max_tokens` to 2048, and returns `{valid:false, score:null}` on parse failure; `run.py` excludes invalid grades from averages.
+- **Fixtures 002/003/004 reconciled with their planted problems.** 002 → `Read(**/.env*)` (covers `.env.local`); 003 → `required_rules` covering both forbidden paths (graded by union coverage); 004 accepts prompt-hook OR PostToolUse command-hook. Ends the code-10/model-3 contradiction.
+- **Grader pinned to Haiku for every run; `claude-cli` respects per-call model.** Frontier columns now graded by one model — comparable + reproducible.
+- **Aggregation adds `code_mean`, `clean_rate`, per-fixture `coverage`** alongside the max headline. Code and model grades reported separately (never blended) — code is the autonomy-gating metric; model is advisory.
+- **Full-matrix baseline re-scored** at `evals/results/2026-05-24-v0.3.4-{gemma,haiku,sonnet,opus}.json`. NOT directly comparable to ≤v0.3.3 — scoring semantics changed.
+
+**v0.3.4 baseline numbers (new semantics):**
+
+| Backend | Avg code | Avg model (Haiku-graded) |
+|---|---|---|
+| gemma4 | 8.44 | 6.00 |
+| Haiku 4.5 | **9.59** | 6.14 |
+| Sonnet 4.5 (200k) | 8.91 | 4.43 |
+| Opus 4.7 (1M) | 8.84 | 5.71 |
+
+Haiku-proposes-and-Haiku-grades is the highest scorer — partly the grader-bias artifact (now controllable since the grader is pinned), partly genuine alignment between proposer and rubric. Sonnet and Opus both have lower model grades; the new aggregation surfaces this honestly.
 
 ---
 
