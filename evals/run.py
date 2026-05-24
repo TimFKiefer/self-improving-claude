@@ -170,8 +170,12 @@ def main(argv: list[str] | None = None) -> int:
         from evals.client_ollama import OllamaClient, DEFAULT_MODEL
         client = OllamaClient()
         model_label = f"ollama:{DEFAULT_MODEL}"
+    elif backend == "claude-cli":
+        from evals.client_claude_cli import ClaudeCliClient, DEFAULT_MODEL as CLI_MODEL
+        client = ClaudeCliClient()
+        model_label = f"claude-cli:{CLI_MODEL}"
     else:
-        print(f"Unknown EVAL_BACKEND={backend!r} (expected: ollama|anthropic)", file=sys.stderr)
+        print(f"Unknown EVAL_BACKEND={backend!r} (expected: ollama|anthropic|claude-cli)", file=sys.stderr)
         return 2
 
     entries = load_dataset()
