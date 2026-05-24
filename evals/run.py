@@ -145,7 +145,8 @@ def _aggregate(per_entry_results: list[dict]) -> dict:
     per_entry = []
     for r in per_entry_results:
         best_code = max((c["mean"] for c in r["code_grades"]), default=0.0)
-        best_model = max((m["score"] for m in r["model_grades"]), default=0)
+        best_model = max((m["score"] for m in r["model_grades"]
+                          if m.get("score") is not None), default=0)
         per_entry.append({"id": r["id"], "code": best_code, "model": best_model})
 
     avg_code = sum(p["code"] for p in per_entry) / len(per_entry)

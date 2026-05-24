@@ -36,7 +36,7 @@ Respond with a JSON object exactly matching this schema:
   "score": <integer 0 to 10; 10 = exactly solves the planted problem>
 }}
 
-Output ONLY the JSON. No prose before or after."""
+Output ONLY a single-line minified JSON object — no markdown fences, no prose before or after, no trailing whitespace."""
 
 
 _FENCE_OPEN_RE = re.compile(r"^```(?:json|JSON)?\s*\n?")
@@ -63,7 +63,7 @@ def grade_model(*, proposal: dict, planted_problem: str, client) -> dict:
     )
     response = client.messages.create(
         model=GRADER_MODEL,
-        max_tokens=1024,
+        max_tokens=2048,
         system=GRADER_SYSTEM,
         messages=[{"role": "user", "content": user_msg}],
     )
@@ -73,24 +73,33 @@ def grade_model(*, proposal: dict, planted_problem: str, client) -> dict:
         parsed = json.loads(_extract_json(text))
     except json.JSONDecodeError as e:
         return {
+            "valid": False,
+            "score": None,
+            "error": f"parse_error: {e}",
             "strengths": [],
             "weaknesses": [],
             "reasoning": "",
-            "score": 0,
-            "parse_error": str(e),
             "raw_response": text[:500],
         }
 
-    score = parsed.get("score", 0)
+    raw_score = parsed.get("score")
     try:
-        score = int(score)
+        score = max(0, min(10, int(raw_score)))
     except (TypeError, ValueError):
-        score = 0
-    score = max(0, min(10, score))  # clamp
+        return {
+            "valid": False,
+            "score": None,
+            "error": f"bad_score: {raw_score!r}",
+            "strengths": parsed.get("strengths", []),
+            "weaknesses": parsed.get("weaknesses", []),
+            "reasoning": parsed.get("reasoning", ""),
+        }
 
     return {
+        "valid": True,
+        "score": score,
+        "error": None,
         "strengths": parsed.get("strengths", []),
         "weaknesses": parsed.get("weaknesses", []),
         "reasoning": parsed.get("reasoning", ""),
-        "score": score,
     }

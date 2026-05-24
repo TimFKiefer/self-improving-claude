@@ -77,14 +77,14 @@ def test_grade_model_extracts_json_from_fenced_response():
 
 
 def test_grade_model_handles_malformed_response_gracefully():
-    """If the model returns garbage, we get score 0 + an error note rather than a crash."""
+    """Garbage response -> valid:false + score:None (no misleading 0)."""
     captured: list = []
     response = "not json at all"
     client = FakeAnthropicClient(response, captured)
     result = grade_model(proposal={}, planted_problem="x", client=client)
-    assert result["score"] == 0
-    assert "parse_error" in result
-    assert isinstance(result["parse_error"], str)
+    assert result["valid"] is False
+    assert result["score"] is None
+    assert "parse_error" in result["error"]
 
 
 def test_grade_model_clamps_out_of_range_score():
@@ -110,3 +110,38 @@ def test_grade_model_prompt_includes_planted_problem_and_proposal():
     combined = json.dumps(sent_messages)
     assert "Claude runs pnpm test" in combined
     assert "Bash" in combined
+
+
+# --- v0.3.4: truncation prevention + valid/score-None schema ---
+
+class _FakeClientV34:
+    def __init__(self, text):
+        self._text = text
+        self.last_kwargs = None
+        self.messages = SimpleNamespace(create=self._create)
+
+    def _create(self, **kwargs):
+        self.last_kwargs = kwargs
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=self._text)])
+
+
+def test_grade_model_valid_score():
+    c = _FakeClientV34('{"strengths":[],"weaknesses":[],"reasoning":"ok","score":8}')
+    r = grade_model(proposal={"form": "x"}, planted_problem="p", client=c)
+    assert r["valid"] is True
+    assert r["score"] == 8
+    assert r["error"] is None
+
+
+def test_grade_model_truncation_is_invalid_not_zero():
+    c = _FakeClientV34('{"strengths":["good"],"weaknesses":["')
+    r = grade_model(proposal={"form": "x"}, planted_problem="p", client=c)
+    assert r["valid"] is False
+    assert r["score"] is None
+    assert r["error"]
+
+
+def test_grade_model_requests_higher_token_floor():
+    c = _FakeClientV34('{"score":5}')
+    grade_model(proposal={"form": "x"}, planted_problem="p", client=c)
+    assert c.last_kwargs["max_tokens"] >= 2048
