@@ -26,9 +26,9 @@ The goal is to detect regressions: if a future change to the orchestrator prompt
 
 ### Code grade — scale 0.0 to 10.0
 
-Mean of 7 deterministic checks. Each check returns 0 or 10. So per fixture the possible code grades are: 0.0, 1.4, 2.9, 4.3, 5.7, 7.1, 8.6, 10.0 (i.e. `n × 10 ÷ 7`).
+Mean of 8 deterministic checks (was 7 before v0.3.2 added `imperative_stderr`). Each check returns 0 or 10. So per fixture the possible code grades are: 0.0, 1.25, 2.5, 3.75, 5.0, 6.25, 7.5, 8.75, 10.0 (i.e. `n × 10 ÷ 8`).
 
-The 7 checks (see `../grade_code.py`):
+The 8 checks (see `../grade_code.py`):
 
 | Check | What it verifies |
 |---|---|
@@ -38,6 +38,7 @@ The 7 checks (see `../grade_code.py`):
 | `script_parses` | Python/Bash/JS script syntactically parses (via `ast.parse` / `bash -n` / `node --check`). N/A for non-script forms. |
 | `sentinel_format` | The proposal's `sentinel_name` matches `self-improving-claude/<kebab-slug>` regex. N/A for `permissions.*` and `claude-md-note`. |
 | `rationale_keywords` | The proposal's `rationale` contains all required keywords from `expected_hook_traits.rationale_must_mention`. |
+| `imperative_stderr` | For command-hooks that write stderr: banned passive phrasing (`audit`/`consider`/`verify`/`review`) fails; non-blocking events (PostToolUse, etc.) also require an action phrase (`REQUIRED FOLLOW-UP`/`Do not stop`/`Fix each`/`BLOCKING`/`Do not ask`). N/A for non-script forms and stderr-less scripts. |
 | `rule_pattern` | For `permissions.*` forms: the `rule` matches expected string exactly OR contains required substring. |
 
 **Rough interpretation:**
@@ -107,7 +108,7 @@ Each fixture is designed to test a *specific form choice*. v0.3's form-selection
 
 All four were used to produce the v0.3 baseline. The non-Ollama runs went through `claude --print --model <X>` via the user's Claude Code subscription — **no `ANTHROPIC_API_KEY` env var needed** (subscription auth is OAuth).
 
-For details on the CLI-via-subscription approach, see `/tmp/eval_via_cli.py` (one-shot helper) — v0.4 will productize it as a permanent backend (`evals/client_claude_cli.py`).
+For the CLI-via-subscription approach, use `EVAL_BACKEND=claude-cli` (implemented in `evals/client_claude_cli.py` as of v0.3.3 — it productized the former `/tmp/eval_via_cli.py` one-shot helper).
 
 ---
 
@@ -171,6 +172,20 @@ LLM grader's score 0–10 (the grader uses the same model family as the proposer
 
 ---
 
+## v0.3.3 re-score (2026-05-24)
+
+First re-score since v0.3.0, and the first run with the **8-check grader** — the v0.3.2 `imperative_stderr` check now actually inspects f-string / bash / JS stderr (it previously only saw plain-string `print()`; see CHANGELOG 0.3.3). File: `2026-05-24-v0.3.3-gemma.json`.
+
+| metric | v0.3 gemma | v0.3.3 gemma |
+|---|---:|---:|
+| avg code | 7.1 | 6.1 |
+| avg model | 2.9 | 3.7 |
+
+**The code dip is gemma noise, not a regression — read the per-fixture data before concluding anything:**
+- The new 8th check (`imperative_stderr`) scored **10 on all 5 fixtures** where gemma produced a parseable proposal. The fixed (stricter) grader did **not** spuriously fail any correct hook.
+- The 7.1→6.1 drop is driven entirely by gemma emitting **no parseable JSON** for fixtures 003 and 004 this run (`forms=[]` → 0.0). This is the documented gemma small-model truncation: different fixtures fail on different runs (006 truncated in the v0.3 gemma run but succeeded here).
+- Net: treat the gemma baseline as a **regression tripwire**, not a quality signal. For a clean read of the v0.3.1/v0.3.2/v0.3.3 changes, run the frontier reference: `EVAL_BACKEND=claude-cli CLAUDE_CLI_MODEL=haiku python3 -m evals.run`.
+
 ## How to reproduce
 
 From the repo root:
@@ -188,19 +203,17 @@ python3 -m evals.run
 EVAL_BACKEND=anthropic ANTHROPIC_API_KEY=sk-... python3 -m evals.run
 ```
 
-### Via Claude Code subscription (no API key — what we used for Haiku/Sonnet/Opus baselines here)
+### Via Claude Code subscription (no API key — for the Haiku/Sonnet/Opus references)
+
+As of v0.3.3 this is an in-repo backend (`evals/client_claude_cli.py`), no longer a `/tmp` helper:
 
 ```bash
-python3 /tmp/eval_via_cli.py haiku
-python3 /tmp/eval_via_cli.py claude-sonnet-4-5     # 200k variant on accounts without 1M credits
-python3 /tmp/eval_via_cli.py opus                  # 1M default on accounts with the 1M Opus entitlement
+EVAL_BACKEND=claude-cli CLAUDE_CLI_MODEL=haiku python3 -m evals.run
+EVAL_BACKEND=claude-cli CLAUDE_CLI_MODEL=claude-sonnet-4-5 python3 -m evals.run
+EVAL_BACKEND=claude-cli CLAUDE_CLI_MODEL=opus python3 -m evals.run
 ```
 
-If specific fixtures time out (slow models on long prompts), use the patch script to re-run just those:
-
-```bash
-python3 /tmp/eval_patch.py <model_id> evals/results/<result-file>.json <fixture_id> [<fixture_id>...]
-```
+`CLAUDE_CLI_MODEL` defaults to `haiku`. Auth is your Claude Code subscription (OAuth) — no `ANTHROPIC_API_KEY` needed.
 
 ---
 
@@ -213,5 +226,6 @@ python3 /tmp/eval_patch.py <model_id> evals/results/<result-file>.json <fixture_
 | `2026-05-23-v0.3-haiku.json` | v0.3 baseline against Haiku 4.5 (subscription) |
 | `2026-05-23-v0.3-sonnet.json` | v0.3 baseline against Sonnet 4.5 (200k, subscription) |
 | `2026-05-23-v0.3-opus.json` | v0.3 baseline against Opus 4.7 (1M default, subscription) |
+| `2026-05-24-v0.3.3-gemma.json` | v0.3.3 re-score against gemma4 (first run with the 8-check grader; see the v0.3.3 note above) |
 
 Each result JSON contains: `date`, `model`, full per-entry `results` (proposals + code_grades + model_grades + raw_response_head), and a `summary` block (per-entry maxes + averages).

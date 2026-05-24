@@ -1,0 +1,328 @@
+{
+  "date": "2026-05-24T10:44:25Z",
+  "model": "ollama:gemma4:e4b",
+  "results": [
+    {
+      "id": "001-pnpm-test-watcher",
+      "trigger": "improve-init",
+      "user_args": "",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "Blocks the recurring `pnpm test` watcher trap by inspecting the Bash command before it runs and guiding Claude to the non-interactive `pnpm test:ci`; a permissions.deny rule would also block the correct `pnpm test:ci` command.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"Block `pnpm test` (interactive watcher); steer Claude to `pnpm test:ci`.\"\"\"\nimport json, sys\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    \n    # Only run if the tool is Bash\n    if ev.get(\"tool_name\") != \"Bash\":\n        return 0\n\n    cmd = (ev.get(\"tool_input\") or {}).get(\"command\", \"\")\n\n    # Check for the specific failure pattern: pnpm test without test:ci\n    if cmd.strip().startswith(\"pnpm test\") and \"test:ci\" not in cmd:\n        print(\"REQUIRED FOLLOW-UP: Running `pnpm test` opens an interactive watcher and will time out. Use `pnpm test:ci` instead to run the non-interactive CI test suite.\", file=sys.stderr)\n        return 2\n        \n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "sentinel_name": "self-improving-claude/block-pnpm-test-watcher"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "imperative_stderr": 10,
+            "rule_pattern": 10
+          },
+          "mean": 10.0
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [],
+          "weaknesses": [],
+          "reasoning": "",
+          "score": 0,
+          "parse_error": "Unterminated string starting at: line 12 column 16 (char 1030)",
+          "raw_response": "```json\n{\n  \"strengths\": [\n    \"The use of a `PreToolUse` hook is the perfect mechanism, as it intercepts the command before any harmful execution occurs.\",\n    \"The logic correctly identifies the specific failure pattern (`pnpm test` without `test:ci`) and provides immediate, actionable feedback to the user/model via `stderr`.\",\n    \"Returning a non-zero exit code (2) effectively halts the incorrect execution path, forcing Claude to acknowledge the failure and reconsider its approach.\"\n  ],\n  \""
+        }
+      ],
+      "raw_response_head": "{\n  \"proposals\": [\n    {\n      \"form\": \"command-hook\",\n      \"event\": \"PreToolUse\",\n      \"matcher\": \"Bash\",\n      \"rationale\": \"Blocks the recurring `pnpm test` watcher trap by inspecting the Bash command before it runs and guiding Claude to the non-interactive `pnpm test:ci`; a permissions.deny rule would also block the correct `pnpm test:ci` command.\",\n      \"script_lang\": \"python\",\n      \"script\": \"#!/usr/bin/env python3\\n\\\"\\\"\\\"Block `pnpm test` (interactive watcher); steer Claude to `pnpm t"
+    },
+    {
+      "id": "002-block-env-reads",
+      "trigger": "improve-init",
+      "user_args": "block reads of .env files",
+      "proposals": [
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Blocks reads of `.env` and `.env.*` across all tools with a single rule \u2014 the lightest and most effective form for path-based secret blocking.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Read(**/.env)\nRead(**/.env.*)",
+          "claude_md_line": null,
+          "sentinel_name": null
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "imperative_stderr": 10,
+            "rule_pattern": 0
+          },
+          "mean": 8.75
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "The use of `permissions.deny` is the correct and most direct mechanism for blocking file access.",
+            "The regex pattern `Read(**/.env.*)` is highly effective, concisely covering both the base `.env` file and common variants like `.env.local` and `.env.development`.",
+            "The inclusion of `**` ensures the block is recursive, preventing accidental bypasses in subdirectories."
+          ],
+          "weaknesses": [
+            "The rule only specifies the `Read` event. The planted problem explicitly requires blocking across Read, Grep, and Glob, and these events must be listed or addressed.",
+            "For maximum robustness, the rule should ideally be structured to cover all three required events (Read, Grep, Glob) to ensure uniform blocking.",
+            "The current rule structure is slightly redundant; combining the events into a single, comprehensive rule would be cleaner."
+          ],
+          "reasoning": "The proposal is very strong and solves the core problem of identifying and blocking the secret files. However, it fails to fully address the scope of the planted problem by only listing the 'Read' event, neglecting the required 'Grep' and 'Glob' events. This omission prevents it from achieving a perfect score.",
+          "score": 8
+        }
+      ],
+      "raw_response_head": "{\n  \"proposals\": [\n    {\n      \"form\": \"permissions.deny\",\n      \"event\": null,\n      \"matcher\": null,\n      \"rationale\": \"Blocks reads of `.env` and `.env.*` across all tools with a single rule \u2014 the lightest and most effective form for path-based secret blocking.\",\n      \"script_lang\": null,\n      \"script\": null,\n      \"prompt\": null,\n      \"rule\": \"Read(**/.env)\\nRead(**/.env.*)\",\n      \"claude_md_line\": null,\n      \"sentinel_name\": null\n    }\n  ]\n}"
+    },
+    {
+      "id": "003-prisma-generated-protection",
+      "trigger": "improve-init",
+      "user_args": "",
+      "proposals": [],
+      "code_grades": [],
+      "model_grades": [],
+      "raw_response_head": "{\n  \"proposals\": [\n    {\n      \"form\": \"permissions.deny\",\n      \"event\": null,\n      \"matcher\": null,\n      \"rationale\": \"Blocks all write and edit operations on the auto-generated Prisma directory using a single rule, which is the most efficient way to enforce path constraints.\",\n      \"rule\": \"Write(**/src/generated/prisma/**)|Edit(**/src/generated/prisma/**)\")\n    }\n  ]\n}"
+    },
+    {
+      "id": "004-recursion-prevention",
+      "trigger": "improve",
+      "user_args": "add a guardrail so you don't introduce unbounded recursion again",
+      "proposals": [],
+      "code_grades": [],
+      "model_grades": [],
+      "raw_response_head": "{\n  \"proposals\": [\n    {\n      \"form\": \"command-hook\",\n      \"event\": \"PreToolUse\",\n      \"matcher\": \"Write|Edit|MultiEdit\",\n      \"rationale\": \"Blocks the introduction of unbounded recursion by analyzing the code change before writing, preventing the structural bug observed in `src/tree.py`; a `permissions.deny` rule cannot enforce structural logic.\",\n      \"script_lang\": \"python\",\n      \"script\": \"#!/usr/bin/env python3\\nimport json, sys\\nimport re\\n\\ndef main():\\n    try:\\n        ev = json.l"
+    },
+    {
+      "id": "005-format-on-write",
+      "trigger": "improve-init",
+      "user_args": "",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "Blocks the recurring failure mode where the model runs `ruff check` before formatting, forcing it to run `ruff format` first because a deterministic command hook is required to inspect the command string and block it.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\nimport json, sys\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0  # never break Claude Code on bad input\n\n    if ev.get(\"tool_name\") != \"Bash\":\n        return 0\n\n    cmd = (ev.get(\"tool_input\") or {}).get(\"command\", \"\")\n\n    # Check if the command is ruff check\n    if cmd.strip().startswith(\"ruff check\"):\n        print(\"REQUIRED FOLLOW-UP: Before running `ruff check`, you must run `ruff format` to fix style issues. Do not stop until formatting is complete.\", file=sys.stderr)\n        return 2  # Block execution\n\n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "sentinel_name": "self-improving-claude/block-ruff-check-before-format"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 0,
+            "matcher_matches": 0,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "imperative_stderr": 10,
+            "rule_pattern": 10
+          },
+          "mean": 7.5
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "It correctly identifies the exact failure mode (running `ruff check` before formatting) and intercepts it using a pre-tool-use hook.",
+            "The use of a blocking return code (2) is necessary and effective, as it forces the model to acknowledge the required workflow change.",
+            "The feedback provided to the user/model is highly specific and actionable, directly referencing the required `ruff format` step."
+          ],
+          "weaknesses": [
+            "The hook is too narrow; it only blocks commands starting with `ruff check`. It would fail to block related commands like `ruff check --fix` or other linting tools that might bypass the check.",
+            "The solution only *warns* and *blocks*; it does not automatically insert or execute the `ruff format` command, meaning it still relies on the model reading the warning and manually correcting its plan.",
+            "It doesn't account for the possibility that the model might be using a different formatting tool or a different linting tool that should also be intercepted."
+          ],
+          "reasoning": "This proposal is highly effective because it directly intercepts the specific failure point described in the planted problem. By blocking `ruff check`, it forces the model to acknowledge the formatting requirement. It earns a high score because the mechanism is robust for the stated problem, even if it isn't a perfect, universal fix.",
+          "score": 9
+        }
+      ],
+      "raw_response_head": "{\n  \"proposals\": [\n    {\n      \"form\": \"command-hook\",\n      \"event\": \"PreToolUse\",\n      \"matcher\": \"Bash\",\n      \"rationale\": \"Blocks the recurring failure mode where the model runs `ruff check` before formatting, forcing it to run `ruff format` first because a deterministic command hook is required to inspect the command string and block it.\",\n      \"script_lang\": \"python\",\n      \"script\": \"#!/usr/bin/env python3\\nimport json, sys\\n\\ndef main():\\n    try:\\n        ev = json.load(sys.stdin)\\n "
+    },
+    {
+      "id": "006-rename-callers",
+      "trigger": "improve",
+      "user_args": "add a hook that shows all references when I rename an exported identifier",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PostToolUse",
+          "matcher": "Edit|MultiEdit",
+          "rationale": "Surfaces all hardcoded references to an old identifier value after an Edit/MultiEdit; this is the only way to deterministically run a codebase-wide search and force the model to acknowledge the required follow-up.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"After Edit/MultiEdit, if the old string contained a value, grep for all usages and feed the list back to Claude for verification.\"\"\"\nimport json, subprocess, sys\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    \n    if ev.get(\"tool_name\") not in (\"Edit\", \"MultiEdit\"):\n        return 0\n    \n    inp = ev.get(\"tool_input\") or {}\n    edits = inp.get(\"edits\") or []\n    \n    # We are interested in the old string, as that is the value that was just replaced.\n    old_strings = set()\n    for e in edits:\n        old_strings.add(e.get(\"old_string\", \"\"))\n\n    if not old_strings: \n        return 0\n\n    # Use the first non-empty old string found for the search\n    search_term = next((s for s in old_strings if s), None)\n    if not search_term:\n        return 0\n\n    try:\n        # Run grep across the project for the old string\n        r = subprocess.run(\n            [\"grep\", \"-rn\", \"--include=*.ts\", \"--include=*.tsx\", \n             \"--include=*.js\", \"--include=*.jsx\", search_term, \".\"],\n            capture_output=True, text=True, timeout=10,\n        )\n        hits = [l for l in r.stdout.splitlines() if l][:20]\n        \n        if hits:\n            # Imperative feedback via stderr\n            print(f\"REQUIRED FOLLOW-UP: The identifier '{search_term}' was edited. {len(hits)} stale references remain:\", file=sys.stderr)\n            for h in hits:\n                print(f\"  {h}\", file=sys.stderr)\n            print(\"Fix each reference to the new value, then summarize. Do not stop until done.\", file=sys.stderr)\n            return 2 # Block and provide feedback\n    except Exception:\n        # Handle subprocess errors gracefully\n        pass\n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "sentinel_name": "self-improving-claude/grep-export-callers"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 0,
+            "imperative_stderr": 10,
+            "rule_pattern": 10
+          },
+          "mean": 8.75
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [],
+          "weaknesses": [],
+          "reasoning": "",
+          "score": 0,
+          "parse_error": "Unterminated string starting at: line 12 column 16 (char 1136)",
+          "raw_response": "```json\n{\n  \"strengths\": [\n    \"The script correctly identifies and utilizes the `old_string` from the edit event, which is the crucial piece of data needed to find the renamed identifier.\",\n    \"Using `grep` across the entire project is the only deterministic way to surface all hardcoded, silent references, directly addressing the core failure mode.\",\n    \"The feedback mechanism (printing to `stderr` and returning a non-zero code) is highly effective, forcing the user to acknowledge the stale r"
+        }
+      ],
+      "raw_response_head": "{\n  \"proposals\": [\n    {\n      \"form\": \"command-hook\",\n      \"event\": \"PostToolUse\",\n      \"matcher\": \"Edit|MultiEdit\",\n      \"rationale\": \"Surfaces all hardcoded references to an old identifier value after an Edit/MultiEdit; this is the only way to deterministically run a codebase-wide search and force the model to acknowledge the required follow-up.\",\n      \"script_lang\": \"python\",\n      \"script\": \"#!/usr/bin/env python3\\n\\\"\\\"\\\"After Edit/MultiEdit, if the old string contained a value, grep fo"
+    },
+    {
+      "id": "007-git-push-warn",
+      "trigger": "improve-init",
+      "user_args": "",
+      "proposals": [
+        {
+          "form": "permissions.ask",
+          "event": "PreToolUse",
+          "matcher": "Bash(git push:* origin main)",
+          "rationale": "Requires explicit user confirmation for any push to the main branch, fulfilling the project convention, and uses `permissions.ask` because the decision is purely external (human confirmation) and cannot be blocked deterministically.",
+          "rule": "Bash(git push:* origin main)"
+        },
+        {
+          "form": "prompt-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "Blocks the dangerous force push to main by inspecting the command arguments via LLM reasoning, which is necessary because a simple regex cannot reliably parse all git push argument combinations and check for both force and target branch.",
+          "prompt": "Evaluate this Bash command. If it is a `git push` that includes `--force` or `-f` AND targets the `main` branch, respond with `deny` and explain that force pushes to main require explicit human review. Otherwise, respond with `allow`.",
+          "sentinel_name": "self-improving-claude/gate-force-push-to-main"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 0,
+            "rationale_keywords": 0,
+            "imperative_stderr": 10,
+            "rule_pattern": 10
+          },
+          "mean": 7.5
+        },
+        {
+          "checks": {
+            "form_matches": 0,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 0,
+            "imperative_stderr": 10,
+            "rule_pattern": 0
+          },
+          "mean": 6.25
+        }
+      ],
+      "model_grades": [
+        {
+          "strengths": [
+            "Using `permissions.ask` is the perfect mechanism for implementing a non-blocking, human-in-the-loop confirmation.",
+            "The `PreToolUse` event is correctly chosen, ensuring the confirmation prompt happens immediately before the push attempt.",
+            "The proposal correctly identifies the `git push` command as the trigger point."
+          ],
+          "weaknesses": [
+            "The matcher `Bash(git push:* origin main)` is too restrictive; it only catches pushes to `main` and will fail to intercept pushes to any other branch (e.g., `feature/x`).",
+            "The rule should be simplified to a broader pattern like `Bash(git push)` to ensure *every* push attempt is intercepted, fulfilling the 'for every push' requirement."
+          ],
+          "reasoning": "The proposal nails the core mechanism by using `permissions.ask` and `PreToolUse`, which is excellent. However, the matcher is too specific, limiting the rule only to pushes targeting 'main'. This fails to solve the requirement of confirming *every* push, making the solution incomplete.",
+          "score": 9
+        },
+        {
+          "strengths": [
+            "The use of a `prompt-hook` is technically sound, as it correctly leverages LLM reasoning to parse complex command arguments, which is superior to simple regex matching for `git` commands.",
+            "It successfully implements the desired 'gate' mechanism using the `PreToolUse` event, providing the necessary human-in-the-loop confirmation.",
+            "By specifically targeting force pushes to `main`, it addresses the most critical and dangerous subset of the planted problem."
+          ],
+          "weaknesses": [
+            "The proposal fails to solve the planted problem because it only gates force pushes, ignoring the core requirement of reviewing *every* `git push`.",
+            "The scope is too narrow; it only checks for the `main` branch, failing to provide a gate for pushes to other critical branches (e.g., `develop` or `release`).",
+            "The prompt logic is overly restrictive and could be bypassed or misinterpreted if the user pushes without force, as the current logic only explicitly denies the force push scenario."
+          ],
+          "reasoning": "While the proposal is technically excellent at implementing a gate and correctly identifies the most dangerous push scenario, it fundamentally fails to meet the planted problem's requirement of reviewing *all* pushes. Because the scope is so limited, it only solves a small, dangerous subset of the overall problem.",
+          "score": 6
+        }
+      ],
+      "raw_response_head": "{\n  \"proposals\": [\n    {\n      \"form\": \"permissions.ask\",\n      \"event\": \"PreToolUse\",\n      \"matcher\": \"Bash(git push:* origin main)\",\n      \"rationale\": \"Requires explicit user confirmation for any push to the main branch, fulfilling the project convention, and uses `permissions.ask` because the decision is purely external (human confirmation) and cannot be blocked deterministically.\",\n      \"rule\": \"Bash(git push:* origin main)\"\n    },\n    {\n      \"form\": \"prompt-hook\",\n      \"event\": \"PreToo"
+    }
+  ],
+  "summary": {
+    "average_code": 6.071428571428571,
+    "average_model": 3.7142857142857144,
+    "entries": [
+      {
+        "id": "001-pnpm-test-watcher",
+        "code": 10.0,
+        "model": 0
+      },
+      {
+        "id": "002-block-env-reads",
+        "code": 8.75,
+        "model": 8
+      },
+      {
+        "id": "003-prisma-generated-protection",
+        "code": 0.0,
+        "model": 0
+      },
+      {
+        "id": "004-recursion-prevention",
+        "code": 0.0,
+        "model": 0
+      },
+      {
+        "id": "005-format-on-write",
+        "code": 7.5,
+        "model": 9
+      },
+      {
+        "id": "006-rename-callers",
+        "code": 8.75,
+        "model": 0
+      },
+      {
+        "id": "007-git-push-warn",
+        "code": 7.5,
+        "model": 9
+      }
+    ]
+  }
+}
