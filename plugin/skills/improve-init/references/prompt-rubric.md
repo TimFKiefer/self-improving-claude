@@ -24,6 +24,10 @@ Every proposal you draft must satisfy every item below before you show it to the
 
 10. **Validated syntax.** Before you show it: `bash -n` for shell, `python -m py_compile` for Python, `node --check` for JS, `json.loads` for permission rules / settings entries. A draft that doesn't parse never reaches the user.
 
+11. **Enforcement-shape check.** For rules of shape "after X, the model must do Y" (where Y is multi-step or scope-expanding), recognize that PostToolUse exit-2 stderr is *informational*, not *imperative* — the model may summarize and stop instead of acting. If the rule genuinely requires action, prefer a form that can BLOCK (`permissions.deny` / `permissions.ask` when a glob fits). If you stay with PostToolUse alone, the rationale must name explicitly why surfacing alone is sufficient here (typically: "this is a one-shot nudge", not "the model must act now"). Composed PostToolUse+Stop hooks are the structural fix for genuine enforcement — slated for v0.4.
+
+12. **Imperative stderr.** Hook scripts that surface context via stderr MUST use imperative voice. Required phrasing: "REQUIRED FOLLOW-UP", "Do not stop until", "Fix each, then summarize", "Update X, then proceed". Banned phrasing (treat as a rubric failure — revise before showing the user): "audit", "consider", "verify these are", "review", "or X is unrelated" (the escape hatch). The cost-of-asking must exceed the cost-of-acting — passive phrasing inverts that and licenses inaction.
+
 ## Disqualifiers (drop the candidate immediately)
 
 - The rule duplicates an existing entry (verified against `<existing_hooks>` / `<existing_permissions>`).

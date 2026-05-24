@@ -199,10 +199,10 @@ def main():
             )
             hits = [l for l in r.stdout.splitlines() if l][:20]
             if hits:
-                print(f"Export `{name}` touched. References still in tree:", file=sys.stderr)
+                print(f"REQUIRED FOLLOW-UP: export `{name}` was edited. {len(hits)} references remain in the codebase:", file=sys.stderr)
                 for h in hits:
                     print(f"  {h}", file=sys.stderr)
-                print("Verify these are consistent with your change.", file=sys.stderr)
+                print("Fix each reference (update to the new value or import the constant), then summarize. Do not stop until done. Do not ask before fixing — installing this hook authorizes the scope.", file=sys.stderr)
                 return 2
         except Exception:
             pass
@@ -239,6 +239,10 @@ if __name__ == "__main__":
 ### Why it's good
 
 The proposal *picked PostToolUse command-hook over CLAUDE.md note* because the rule is "after editing X, show Y" — a context-surfacing rule that the orchestrator must enforce, not a taste-level preference. The script uses defensive `.get(...)`, exits 2 with stderr so Claude sees the grep results as feedback, stays under 60 LOC, carries the sentinel `name`, and runs only when an export-definition line is detected (no noise on unrelated edits).
+
+**Note on the imperative stderr.** The stderr text uses the action-forcing pattern from rubric criterion 12: "REQUIRED FOLLOW-UP", explicit fix instruction, "Do not stop until done", "Do not ask before fixing — installing this hook authorizes the scope." A passive phrasing ("Verify these are consistent" / "Audit these usages") would let the model summarize-and-stop rather than act. Reading only the stderr, you should feel obligated to act, not informed; that's the bar.
+
+**Limitation.** Even with imperative voice, PostToolUse exit-2 cannot literally block turn-end — only Stop hooks can. The model *usually* acts on a strong imperative, but a model in heavy scope-discipline mode may still defer. The structural fix (composed PostToolUse + Stop with re-verify) is slated for v0.4.
 
 ---
 

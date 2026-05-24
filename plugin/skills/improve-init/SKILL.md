@@ -161,9 +161,17 @@ Reread your draft against the rubric with fresh eyes. If anything is off, revise
 
 Edge case: if a candidate is *almost* there and you suspect the user would still want it, use `AskUserQuestion` to surface the trade-off rather than dropping it silently.
 
-## Step 7 — Validate syntax before showing the user
+## Step 7 — Validate syntax AND behavior before showing the user
 
-Run the obvious checks for the form you produced — `bash -n`, `python -m py_compile`, `node --check`, JSON parse, glob shape. A draft that doesn't pass these never reaches the user. Better silently dropped than visibly broken.
+**Syntax checks.** Run the obvious ones for the form you produced — `bash -n`, `python -m py_compile`, `node --check`, JSON parse, glob shape. A draft that doesn't pass these never reaches the user.
+
+**Behavioral check.** For any command-hook that emits stderr feedback (especially on PostToolUse), render the literal stderr text the model would see and ask yourself:
+
+> *If I were Claude in auto-mode and read ONLY this stderr after my Edit, would I continue the work or would I summarize and ask the user?*
+
+If you'd likely ask, the message is too passive — revise to imperative voice per rubric criterion 12. This catches the failure mode where the proposal is structurally fine (passes all syntax + form checks) but behaviorally weak (model reads it as info and shrugs).
+
+Better silently dropped than visibly broken — but ALSO better revised to imperative voice than silently shipping a hook that will fail to enforce.
 
 ## Step 8 — Walk the user through approvals, one at a time
 
