@@ -283,3 +283,35 @@ EVAL_BACKEND=claude-cli CLAUDE_CLI_MODEL=opus python3 -m evals.run
 | `2026-05-24-v0.3.4-opus.json` | v0.3.4 baseline, Opus 4.7 proposer (grader Haiku) |
 
 Each result JSON contains: `date`, `model`, full per-entry `results` (proposals + code_grades + model_grades + raw_response_head), and a `summary` block (per-entry maxes + averages).
+
+---
+
+## Capability benchmark (`python3 -m evals.benchmark`)
+
+A **separate instrument** from the conformance tables above. Those are a *regression tripwire* — exact-match to a narrow gold, n=1; they answer "did the orchestrator still produce a conformant hook?" and deliberately penalize a model for, e.g., writing "watch mode" instead of the literal keyword "watcher". They **cannot** rank models by quality.
+
+The capability benchmark answers the other question — **"on average, how good are the hooks a model produces?"** — by sampling each model multiple times and scoring *quality against the planted problem* (never gold conformance), then ranking.
+
+**How it works:** for each `model × fixture`, run `N` proposer samples; **one batched judge call per cell** (fixed Sonnet judge) scores all that cell's proposals; per-sample quality = the best (max) proposal; aggregate to mean ± stderr per cell and a per-model leaderboard. Reuses `grade_model` (which already scores quality vs the planted problem).
+
+**Run it:**
+```bash
+python3 -m evals.benchmark                       # defaults below
+BENCH_MODELS="claude-cli:haiku,claude-cli:claude-sonnet-4-5,ollama:gemma4:e4b" python3 -m evals.benchmark
+python3 -m evals.benchmark --fixture 002-block-env-reads
+python3 -m evals.benchmark --independent         # one judge call per proposal (gold-standard)
+```
+- `BENCH_MODELS` (default `claude-cli:haiku,claude-cli:claude-sonnet-4-5,claude-cli:opus,ollama:gemma4:e4b`) — comma-separated `backend:model` specs.
+- `BENCH_JUDGE` (default `claude-cli:claude-sonnet-4-5`) — the fixed judge.
+- `BENCH_SAMPLES` (default `4`) — samples per model×fixture.
+
+**Cost:** ~`models × fixtures × N` proposer calls + ~`models × fixtures` Sonnet judge calls (batched; `--independent` multiplies the judge calls by the proposal count). Opus is premium — run deliberately.
+
+**Caveats (don't over-read the numbers):**
+1. **Single-judge self-preference** — Sonnet judges all contestants, including the Sonnet one; mild bias toward its own family.
+2. **Absolute 0-10 is the judge's subjective scale** — read *relative* model ordering, not the absolute values.
+3. **Batched judging mildly compresses within-cell variance** (co-scoring a cell's samples). Use `--independent` for a rigorous run.
+4. **Sample diversity is bounded by the backend's default temperature** — `claude --print` can't force one, so stderr may be understated.
+5. **n=4 is a noise band, not a CI** — the leaderboard flags pairs "within noise" so small gaps aren't over-read.
+
+**Output:** `evals/results/benchmark/<date>-bench.json` (per-cell stats + leaderboard).
