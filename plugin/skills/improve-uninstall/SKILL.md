@@ -53,7 +53,7 @@ If the user passed `--dry-run` as $ARGUMENTS in the original invocation, treat t
 
 For **non-dry-run paths only:**
 
-- **Hook entries:** for each plugin-installed entry, remove it from its array in settings.json. Preserve all other entries. Use the same defensive merge discipline as `@references/settings-merge.md` — read, parse, modify in-memory, write atomically (write to `.tmp`, then rename). Reparse after to confirm the write produced valid JSON; if not, restore the pre-write content.
+- **Hook entries:** for each plugin-installed entry, remove it from its array in settings.json. Preserve all other entries. Use the same defensive merge discipline `/improve` uses: read → parse → modify in-memory → write atomically to a `.tmp` file, then rename → reparse to confirm valid JSON → restore the pre-write content on failure.
 - **Permission rules:** ONLY remove rules the user explicitly confirmed in Step 3 (don't auto-remove "best-effort match" entries without user sign-off).
 - **Generated scripts:** delete `.claude/hooks/<slug>.py` (or `.sh`, `.js`) for each matched script. Use `Bash` with `rm -- <path>`.
 - **Telemetry directory:** if the user chose "Confirm all", `rm -rf .claude/self-improving-claude/` (use `Bash`).
