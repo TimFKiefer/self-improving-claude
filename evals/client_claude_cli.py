@@ -18,6 +18,18 @@ from types import SimpleNamespace
 DEFAULT_MODEL = os.environ.get("CLAUDE_CLI_MODEL", "haiku")
 DEFAULT_TIMEOUT = float(os.environ.get("CLAUDE_CLI_TIMEOUT", "600"))
 
+# Map Anthropic model IDs (what grade_model / run pass) to `claude --print` aliases.
+# Unknown values pass through unchanged (a CLI alias like "opus" is already valid).
+_CLI_MODEL_MAP = {
+    "claude-haiku-4-5-20251001": "haiku",
+    "claude-sonnet-4-5": "sonnet",
+    "claude-opus-4-7": "opus",
+}
+
+
+def _to_cli_model(model: str) -> str:
+    return _CLI_MODEL_MAP.get(model, model)
+
 
 class ClaudeCliClient:
     """Drop-in for `anthropic.Anthropic` using the `claude --print` CLI."""
@@ -40,17 +52,19 @@ class ClaudeCliClient:
             parts.append(content)
         return "\n\n".join(parts)
 
-    def _create(self, *, model: str, max_tokens: int, messages: list,
+    def _create(self, *, model: str | None = None, max_tokens: int, messages: list,
                 system: str | None = None, **_ignored):
-        """Issue one completion via `claude --print`. The Anthropic `model`
-        kwarg (a cloud model name) is ignored; the CLI model is fixed at
-        construction. `max_tokens` has no CLI equivalent and is ignored."""
+        """Issue one completion via `claude --print`. The per-call `model` (an
+        Anthropic id or CLI alias) is honored and mapped to a CLI alias, falling
+        back to the construction model — this lets the grader be pinned (Haiku)
+        while the proposer varies. `max_tokens` has no CLI equivalent (ignored)."""
+        cli_model = _to_cli_model(model) if model else self.cli_model
         prompt = self._build_prompt(system, messages)
         try:
             result = subprocess.run(
                 [
                     "claude", "--print",
-                    "--model", self.cli_model,
+                    "--model", cli_model,
                     "--disable-slash-commands",
                     "--no-session-persistence",
                     "--exclude-dynamic-system-prompt-sections",

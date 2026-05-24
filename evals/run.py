@@ -24,6 +24,7 @@ SKILL_REFS = REPO_ROOT / "plugin" / "skills" / "improve" / "references"
 PROMPT_TEMPLATE_PATH = EVALS_DIR / "prompt_template.md"
 
 ORCHESTRATOR_MODEL = "claude-haiku-4-5-20251001"
+CLEAN_THRESHOLD = 7.0  # a proposal at/above this code mean counts as "clean"
 
 _FENCE_OPEN_RE = re.compile(r"^```(?:json|JSON)?\s*\n?")
 _FENCE_CLOSE_RE = re.compile(r"\n?```\s*$")
@@ -101,8 +102,12 @@ def parse_proposals(text: str) -> list[dict]:
     return []
 
 
-def run_one_entry(entry: dict, *, client) -> dict:
-    """Run one dataset entry end-to-end: assemble → call → parse → grade."""
+def run_one_entry(entry: dict, *, client, proposer_model: str) -> dict:
+    """Run one dataset entry end-to-end: assemble → call → parse → grade.
+
+    The proposal uses `proposer_model` (varies per run); grading uses
+    grade_model.GRADER_MODEL (pinned to Haiku) for cross-run comparability.
+    """
     fx = load_fixture(entry["id"])
     mode = "reactive" if entry["trigger"] == "improve" else "proactive"
     prompt = assemble_prompt(
@@ -111,7 +116,7 @@ def run_one_entry(entry: dict, *, client) -> dict:
         fixture=fx,
     )
     resp = client.messages.create(
-        model=ORCHESTRATOR_MODEL,
+        model=proposer_model,
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -128,6 +133,7 @@ def run_one_entry(entry: dict, *, client) -> dict:
         "id": entry["id"],
         "trigger": entry["trigger"],
         "user_args": entry.get("user_args", ""),
+        "expected_hook_traits": entry["expected_hook_traits"],
         "proposals": proposals,
         "code_grades": code_grades,
         "model_grades": model_grades,
@@ -136,22 +142,48 @@ def run_one_entry(entry: dict, *, client) -> dict:
 
 
 def _aggregate(per_entry_results: list[dict]) -> dict:
-    """Compute dataset-level averages and a flat scorecard."""
+    """Dataset-level rollup.
+
+    Headline = max code grade (best-candidate intent). Also reports code_mean
+    and clean_rate so noisy proposal sets are visible, and per-fixture coverage
+    for `required_rules` fixtures. Invalid model grades (score is None) are
+    excluded — never counted as 0.
+    """
     if not per_entry_results:
-        return {"average_code": 0, "average_model": 0, "entries": []}
+        return {"average_code": 0.0, "average_model": None,
+                "average_clean_rate": 0.0, "entries": []}
 
-    # If an entry has multiple proposals, take the BEST (max) — credits a strong proposal
-    # even when others are weak, which matches the orchestrator's "pick the best candidates" intent.
-    per_entry = []
+    entries = []
     for r in per_entry_results:
-        best_code = max((c["mean"] for c in r["code_grades"]), default=0.0)
-        best_model = max((m["score"] for m in r["model_grades"]
-                          if m.get("score") is not None), default=0)
-        per_entry.append({"id": r["id"], "code": best_code, "model": best_model})
+        codes = [c["mean"] for c in r["code_grades"]]
+        valid_models = [m["score"] for m in r["model_grades"]
+                        if m.get("valid") and m.get("score") is not None]
+        entry = {
+            "id": r["id"],
+            "code_max": max(codes, default=0.0),
+            "code_mean": (sum(codes) / len(codes)) if codes else 0.0,
+            "model_max": max(valid_models, default=None),
+            "model_mean": (sum(valid_models) / len(valid_models)) if valid_models else None,
+            "clean_rate": (sum(1 for c in codes if c >= CLEAN_THRESHOLD) / len(codes)) if codes else 0.0,
+            "n_proposals": len(r.get("proposals", [])),
+            "n_model_valid": len(valid_models),
+        }
+        required = (r.get("expected_hook_traits") or {}).get("required_rules")
+        if required:
+            covered = set()
+            for cg in r["code_grades"]:
+                for rp in (cg.get("rules_present") or []):
+                    covered.add(rp)
+            entry["coverage"] = len(covered) / len(required)
+        entries.append(entry)
 
-    avg_code = sum(p["code"] for p in per_entry) / len(per_entry)
-    avg_model = sum(p["model"] for p in per_entry) / len(per_entry)
-    return {"average_code": avg_code, "average_model": avg_model, "entries": per_entry}
+    model_maxes = [e["model_max"] for e in entries if e["model_max"] is not None]
+    return {
+        "average_code": sum(e["code_max"] for e in entries) / len(entries),
+        "average_model": (sum(model_maxes) / len(model_maxes)) if model_maxes else None,
+        "average_clean_rate": sum(e["clean_rate"] for e in entries) / len(entries),
+        "entries": entries,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -167,14 +199,17 @@ def main(argv: list[str] | None = None) -> int:
         from anthropic import Anthropic  # local import — only needed for this backend
         client = Anthropic()
         model_label = ORCHESTRATOR_MODEL
+        proposer_model = ORCHESTRATOR_MODEL
     elif backend == "ollama":
         from evals.client_ollama import OllamaClient, DEFAULT_MODEL
         client = OllamaClient()
         model_label = f"ollama:{DEFAULT_MODEL}"
+        proposer_model = DEFAULT_MODEL  # ignored by OllamaClient, kept for labels
     elif backend == "claude-cli":
         from evals.client_claude_cli import ClaudeCliClient, DEFAULT_MODEL as CLI_MODEL
         client = ClaudeCliClient()
         model_label = f"claude-cli:{CLI_MODEL}"
+        proposer_model = CLI_MODEL
     else:
         print(f"Unknown EVAL_BACKEND={backend!r} (expected: ollama|anthropic|claude-cli)", file=sys.stderr)
         return 2
@@ -191,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
     per_entry_results = []
     for entry in entries:
         print(f"Running {entry['id']}...", file=sys.stderr)
-        per_entry_results.append(run_one_entry(entry, client=client))
+        per_entry_results.append(run_one_entry(entry, client=client, proposer_model=proposer_model))
 
     agg = _aggregate(per_entry_results)
     output = {
@@ -207,7 +242,10 @@ def main(argv: list[str] | None = None) -> int:
     out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
     print(f"\nResults written to {out_path}")
     print(f"Average code score:  {agg['average_code']:.1f}/10")
-    print(f"Average model score: {agg['average_model']:.1f}/10")
+    am = agg["average_model"]
+    print(f"Average model score: {am:.1f}/10" if am is not None
+          else "Average model score: n/a (no valid grades)")
+    print(f"Average clean rate:  {agg['average_clean_rate']:.0%}")
     return 0
 
 

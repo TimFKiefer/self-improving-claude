@@ -22,7 +22,7 @@ def test_create_returns_anthropic_shape():
     with patch("evals.client_claude_cli.subprocess.run",
                new=_fake_run_factory("hello world")):
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",  # caller's name — ignored
+            model="claude-haiku-4-5-20251001",  # mapped to a CLI alias
             max_tokens=256,
             messages=[{"role": "user", "content": "say hi"}],
         )
@@ -31,14 +31,26 @@ def test_create_returns_anthropic_shape():
     assert resp.content[0].text == "hello world"
 
 
-def test_create_uses_cli_model_not_caller_model():
+def test_create_respects_per_call_model():
+    """v0.3.4: the per-call model is honored (mapped to a CLI alias), so the
+    grader can be pinned to Haiku even when the client is built for Opus."""
     fake = _fake_run_factory("ok")
     client = ClaudeCliClient(model="opus")
     with patch("evals.client_claude_cli.subprocess.run", new=fake):
         client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=10,
                                messages=[{"role": "user", "content": "x"}])
     cmd = fake.captured["cmd"]
-    assert cmd[cmd.index("--model") + 1] == "opus"
+    assert cmd[cmd.index("--model") + 1] == "haiku"
+
+
+def test_create_falls_back_to_construction_model():
+    fake = _fake_run_factory("ok")
+    client = ClaudeCliClient(model="sonnet")
+    with patch("evals.client_claude_cli.subprocess.run", new=fake):
+        client.messages.create(model=None, max_tokens=10,
+                               messages=[{"role": "user", "content": "x"}])
+    cmd = fake.captured["cmd"]
+    assert cmd[cmd.index("--model") + 1] == "sonnet"
 
 
 def test_create_prepends_system_prompt():

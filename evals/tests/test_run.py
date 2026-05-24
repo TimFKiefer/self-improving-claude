@@ -13,7 +13,9 @@ from types import SimpleNamespace
 import pytest
 
 from evals.fixtures_lib import load_fixture
+from evals.grade_model import GRADER_MODEL
 from evals.run import (
+    _aggregate,
     assemble_prompt,
     parse_proposals,
     run_one_entry,
@@ -109,13 +111,73 @@ def test_run_one_entry_uses_mocked_client(monkeypatch, tmp_path):
         }
     }]
 
-    result = run_one_entry(entries[0], client=FakeClient())
+    result = run_one_entry(entries[0], client=FakeClient(), proposer_model="claude-haiku-4-5-20251001")
     assert result["id"] == "001-pnpm-test-watcher"
     assert "proposals" in result
     assert "code_grades" in result
     assert "model_grades" in result
     # With the canned proposal that mirrors expected_traits, code_grade should be high
     assert result["code_grades"][0]["mean"] >= 8.0
+
+
+# --- v0.3.4: proposer/grader routing + aggregation ---
+
+def test_proposer_and_grader_models_route_separately():
+    seen = []
+
+    class _Recorder:
+        def __init__(self):
+            self.messages = SimpleNamespace(create=self._create)
+
+        def _create(self, *, model, max_tokens, messages, system=None, **kw):
+            seen.append(model)
+            text = ('{"proposals":[{"form":"permissions.deny","rule":"Read(**/.env*)",'
+                    '"rationale":".env"}]}' if system is None
+                    else '{"score":7,"strengths":[],"weaknesses":[],"reasoning":"x"}')
+            return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
+
+    entry = {"id": "002-block-env-reads", "trigger": "improve-init", "user_args": "",
+             "planted_problem": "p",
+             "expected_hook_traits": {"form": "permissions.deny",
+                                      "rule_pattern": "Read(**/.env*)",
+                                      "rationale_must_mention": [".env"]}}
+    run_one_entry(entry, client=_Recorder(), proposer_model="opus")
+    assert "opus" in seen              # proposal used the proposer model
+    assert GRADER_MODEL in seen        # grading used the pinned grader model
+
+
+def _mk_entry(id, code_means, model_scores, expected=None, rules_present=None):
+    return {
+        "id": id,
+        "proposals": [{} for _ in code_means],
+        "expected_hook_traits": expected or {},
+        "code_grades": [{"mean": m, "rules_present": (rules_present[i] if rules_present else None)}
+                        for i, m in enumerate(code_means)],
+        "model_grades": [{"valid": s is not None, "score": s} for s in model_scores],
+    }
+
+
+def test_aggregate_excludes_invalid_model_grades():
+    agg = _aggregate([_mk_entry("a", [10.0], [None])])
+    e = agg["entries"][0]
+    assert e["model_max"] is None and e["n_model_valid"] == 0
+    assert agg["average_model"] is None
+
+
+def test_aggregate_reports_mean_and_clean_rate():
+    agg = _aggregate([_mk_entry("a", [10.0, 4.0, 8.0], [9, 3, 7])])
+    e = agg["entries"][0]
+    assert e["code_max"] == 10.0
+    assert round(e["code_mean"], 2) == 7.33
+    assert round(e["clean_rate"], 2) == 0.67   # 2 of 3 >= 7.0
+
+
+def test_aggregate_computes_coverage_union():
+    expected = {"required_rules": ["src/generated/prisma", "prisma/dev.db"]}
+    entry = _mk_entry("c", [10.0, 8.6], [5, 5], expected=expected,
+                      rules_present=[["src/generated/prisma"], ["prisma/dev.db"]])
+    agg = _aggregate([entry])
+    assert agg["entries"][0]["coverage"] == 1.0
 
 
 @pytest.mark.integration
