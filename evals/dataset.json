@@ -20,10 +20,10 @@
       "trigger": "improve-init",
       "user_args": "block reads of .env files",
       "fixture": "fixtures/002-block-env-reads",
-      "planted_problem": "Claude has been reading .env and .env.local during normal work; user wants these blocked uniformly across Read/Grep/Glob.",
+      "planted_problem": "Claude has been reading .env and .env.local during normal work; the user wants reads of .env files blocked. A correct rule must cover the bare file AND its variants (.env.local, .env.production), which a bare **/.env glob does not.",
       "expected_hook_traits": {
         "form": "permissions.deny",
-        "rule_pattern": "Read(**/.env)",
+        "rule_pattern": "Read(**/.env*)",
         "rationale_must_mention": [".env"]
       }
     },
@@ -32,10 +32,10 @@
       "trigger": "improve-init",
       "user_args": "",
       "fixture": "fixtures/003-prisma-generated-protection",
-      "planted_problem": "Claude edits src/generated/prisma/* (auto-generated client) and writes to prisma/dev.db (SQLite binary). CLAUDE.md forbids both but no enforcement exists.",
+      "planted_problem": "Claude edits src/generated/prisma/* (auto-generated client) and writes to prisma/dev.db (SQLite binary). CLAUDE.md forbids BOTH paths and no enforcement exists; a complete solution must protect both.",
       "expected_hook_traits": {
         "form": "permissions.deny",
-        "rule_pattern": "Edit(src/generated/prisma/**)",
+        "required_rules": ["src/generated/prisma", "prisma/dev.db"],
         "rationale_must_mention": ["prisma", "generated"]
       }
     },
@@ -46,8 +46,8 @@
       "fixture": "fixtures/004-recursion-prevention",
       "planted_problem": "Claude refactored walk_tree from iterative to recursive without a depth bound, causing RecursionError on a 2000-leaf input. User wants a project-wide guardrail against introducing recursive helpers.",
       "expected_hook_traits": {
-        "form": "prompt-hook",
-        "event": "PreToolUse",
+        "form": ["prompt-hook", "command-hook"],
+        "event": ["PreToolUse", "PostToolUse"],
         "matcher_must_include": ["Edit", "Write"],
         "rationale_must_mention": ["recursion"]
       }
