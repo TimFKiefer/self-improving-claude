@@ -24,6 +24,21 @@ SECRET_PATTERN_RE = re.compile(
 )
 
 
+def _notification_kind(event: dict) -> str:
+    """Classify a Notification by its message text (best-effort, defensive).
+
+    Claude Code notifies both when it needs tool permission and when it has
+    been idle. Field name isn't documented in our knowledge base, so we read
+    `message` and classify by keyword, defaulting to "other".
+    """
+    msg = (event.get("message") or "").lower()
+    if "permission" in msg or "approve" in msg or "allow" in msg:
+        return "waiting_for_permission"
+    if "idle" in msg or "waiting" in msg:
+        return "idle"
+    return "other"
+
+
 def summarize(event: dict) -> dict:
     """Convert a raw hook event into a JSONL row honoring spec §3.4 redaction rules.
 
@@ -37,11 +52,11 @@ def summarize(event: dict) -> dict:
     if hook_event == "PostToolUse":
         return _summarize_tool(event, ts)
     if hook_event == "Notification":
-        return {"ts": ts, "event": "notification"}
+        return {"ts": ts, "event": "notification", "kind": _notification_kind(event)}
     if hook_event == "PreCompact":
-        return {"ts": ts, "event": "compact"}
+        return {"ts": ts, "event": "compact", "reason": event.get("trigger") or event.get("reason") or ""}
     if hook_event == "SessionStart":
-        return {"ts": ts, "event": "session_start"}
+        return {"ts": ts, "event": "session_start", "source": event.get("source") or ""}
 
     return {"ts": ts, "event": "other"}
 

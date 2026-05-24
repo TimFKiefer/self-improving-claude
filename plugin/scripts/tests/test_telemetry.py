@@ -336,3 +336,46 @@ def test_unknown_event_silently_ignored(tmp_path):
     row = run_telemetry(payload, tmp_path)
     assert row["event"] == "other"
     assert "ts" in row
+
+
+# --- discriminating fields: kind / reason / source (v0.3.3, spec 3.5) ---
+
+def test_notification_kind_permission(tmp_path):
+    payload = {"hook_event_name": "Notification",
+               "message": "Claude needs your permission to use Bash"}
+    row = run_telemetry(payload, tmp_path)
+    assert row["event"] == "notification"
+    assert row["kind"] == "waiting_for_permission"
+
+
+def test_notification_kind_idle(tmp_path):
+    payload = {"hook_event_name": "Notification",
+               "message": "Claude is waiting for your input"}
+    row = run_telemetry(payload, tmp_path)
+    assert row["kind"] == "idle"
+
+
+def test_notification_kind_other_when_no_message(tmp_path):
+    payload = {"hook_event_name": "Notification"}
+    row = run_telemetry(payload, tmp_path)
+    assert row["kind"] == "other"
+
+
+def test_precompact_reason_from_trigger(tmp_path):
+    payload = {"hook_event_name": "PreCompact", "trigger": "auto"}
+    row = run_telemetry(payload, tmp_path)
+    assert row["event"] == "compact"
+    assert row["reason"] == "auto"
+
+
+def test_precompact_reason_empty_when_absent(tmp_path):
+    payload = {"hook_event_name": "PreCompact"}
+    row = run_telemetry(payload, tmp_path)
+    assert row["reason"] == ""
+
+
+def test_sessionstart_source_captured(tmp_path):
+    payload = {"hook_event_name": "SessionStart", "source": "resume"}
+    row = run_telemetry(payload, tmp_path)
+    assert row["event"] == "session_start"
+    assert row["source"] == "resume"
