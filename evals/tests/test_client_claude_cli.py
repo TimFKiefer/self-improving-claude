@@ -43,6 +43,18 @@ def test_create_respects_per_call_model():
     assert cmd[cmd.index("--model") + 1] == "haiku"
 
 
+def test_create_passes_through_explicit_sonnet_200k_id():
+    """claude-sonnet-4-5 (200k) must pass through verbatim, NOT map to the bare
+    `sonnet` alias which resolves to a 1M-context variant needing usage credits."""
+    fake = _fake_run_factory("ok")
+    client = ClaudeCliClient(model="haiku")
+    with patch("evals.client_claude_cli.subprocess.run", new=fake):
+        client.messages.create(model="claude-sonnet-4-5", max_tokens=10,
+                               messages=[{"role": "user", "content": "x"}])
+    cmd = fake.captured["cmd"]
+    assert cmd[cmd.index("--model") + 1] == "claude-sonnet-4-5"
+
+
 def test_create_falls_back_to_construction_model():
     fake = _fake_run_factory("ok")
     client = ClaudeCliClient(model="sonnet")

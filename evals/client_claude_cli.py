@@ -20,9 +20,11 @@ DEFAULT_TIMEOUT = float(os.environ.get("CLAUDE_CLI_TIMEOUT", "600"))
 
 # Map Anthropic model IDs (what grade_model / run pass) to `claude --print` aliases.
 # Unknown values pass through unchanged (a CLI alias like "opus" is already valid).
+# NOTE: do NOT map "claude-sonnet-4-5" -> "sonnet". The bare `sonnet` alias resolves
+# to a 1M-context variant that needs usage credits; the explicit `claude-sonnet-4-5`
+# id (200k) must pass through verbatim to work on a plain subscription.
 _CLI_MODEL_MAP = {
     "claude-haiku-4-5-20251001": "haiku",
-    "claude-sonnet-4-5": "sonnet",
     "claude-opus-4-7": "opus",
 }
 
