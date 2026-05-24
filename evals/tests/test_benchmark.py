@@ -40,3 +40,81 @@ def test_within_noise_flags_overlap():
     d = {"mean_quality": 9.5, "stderr": 0.05}
     assert within_noise(a, b) is True
     assert within_noise(c, d) is False
+
+
+import json
+from types import SimpleNamespace
+
+from evals.benchmark import run_cell
+
+
+def _proposer_returning_one_env_rule():
+    body = ('{"proposals":[{"form":"permissions.deny","rule":"Read(**/.env*)",'
+            '"rationale":"block .env reads"}]}')
+    class _P:
+        def __init__(self):
+            self.models = []
+            self.messages = SimpleNamespace(create=self._c)
+        def _c(self, *, model, **k):
+            self.models.append(model)
+            return SimpleNamespace(content=[SimpleNamespace(type="text", text=body)])
+    return _P()
+
+
+def _batched_judge_scoring_all_8():
+    """Returns score 8 for however many proposals the prompt contains."""
+    class _J:
+        def __init__(self):
+            self.models = []
+            self.messages = SimpleNamespace(create=self._c)
+        def _c(self, *, model, messages, **k):
+            self.models.append(model)
+            count = messages[0]["content"].count('<proposal index=')
+            arr = json.dumps([{"index": i, "reasoning": "ok", "score": 8} for i in range(count)])
+            return SimpleNamespace(content=[SimpleNamespace(type="text", text=arr)])
+    return _J()
+
+
+_ENTRY = {"id": "002-block-env-reads", "trigger": "improve-init",
+          "user_args": "", "planted_problem": "block .env reads"}
+
+
+def test_run_cell_samples_n_times_and_batches_one_judge_call():
+    prop = _proposer_returning_one_env_rule()
+    judge = _batched_judge_scoring_all_8()
+    cell = run_cell(entry=_ENTRY, proposer_client=prop, proposer_model="opus",
+                    judge_client=judge, judge_model="claude-sonnet-4-5", samples=4)
+    assert prop.models == ["opus"] * 4          # N=4 proposer calls
+    assert judge.models == ["claude-sonnet-4-5"]  # exactly ONE batched judge call
+    assert cell["mean"] == 8.0                   # each sample's best == 8
+    assert cell["valid_rate"] == 1.0
+
+
+def test_run_cell_empty_proposals_score_zero_and_lower_valid_rate():
+    class _Empty:
+        def __init__(self):
+            self.messages = SimpleNamespace(create=lambda **k:
+                SimpleNamespace(content=[SimpleNamespace(type="text", text="not json")]))
+    judge = _batched_judge_scoring_all_8()
+    cell = run_cell(entry=_ENTRY, proposer_client=_Empty(), proposer_model="m",
+                    judge_client=judge, judge_model="j", samples=3)
+    assert cell["mean"] == 0.0
+    assert cell["valid_rate"] == 0.0
+    assert judge.models == []                    # no proposals -> no judge call
+
+
+def test_run_cell_independent_judges_each_proposal():
+    prop = _proposer_returning_one_env_rule()
+    calls = []
+    class _J1:
+        def __init__(self):
+            self.messages = SimpleNamespace(create=self._c)
+        def _c(self, *, model, **k):
+            calls.append(model)
+            return SimpleNamespace(content=[SimpleNamespace(type="text",
+                text='{"score":6,"strengths":[],"weaknesses":[],"reasoning":"x"}')])
+    cell = run_cell(entry=_ENTRY, proposer_client=prop, proposer_model="m",
+                    judge_client=_J1(), judge_model="claude-sonnet-4-5", samples=2,
+                    independent=True)
+    assert len(calls) == 2                       # one judge call per proposal (2 samples x 1 prop)
+    assert cell["mean"] == 6.0
