@@ -323,3 +323,115 @@ print("Result: N references found.", file=sys.stderr)
     }
     result = grade_code(proposal, EXPECTED_HOOK)
     assert result["checks"]["imperative_stderr"] == 0
+
+
+# --- imperative_stderr: multi-language / f-string coverage (v0.3.3) ---
+
+def test_imperative_stderr_catches_banned_word_in_fstring():
+    """A passive word hidden in an f-string must be caught (was a false pass pre-v0.3.3)."""
+    proposal = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Edit",
+        "script": 'import sys\nprint(f"Audit the {n} callers of {name}.", file=sys.stderr)\n',
+        "script_lang": "python",
+        "rationale": "x",
+        "sentinel_name": "self-improving-claude/x",
+    }
+    result = grade_code(proposal, EXPECTED_HOOK)
+    assert result["checks"]["imperative_stderr"] == 0
+
+
+def test_imperative_stderr_requires_action_phrase_in_fstring_only_message():
+    """Non-blocking stderr that is ONLY a neutral f-string (no action phrase) fails."""
+    proposal = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Edit",
+        "script": 'import sys\nprint(f"Found {n} references.", file=sys.stderr)\n',
+        "script_lang": "python",
+        "rationale": "x",
+        "sentinel_name": "self-improving-claude/x",
+    }
+    result = grade_code(proposal, EXPECTED_HOOK)
+    assert result["checks"]["imperative_stderr"] == 0
+
+
+def test_imperative_stderr_passes_imperative_fstring():
+    """An action-forcing f-string passes (it was previously scored n/a by accident)."""
+    proposal = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Edit",
+        "script": 'import sys\nprint(f"BLOCKING: {n} stale refs. Fix each. Do not stop.", file=sys.stderr)\n',
+        "script_lang": "python",
+        "rationale": "x",
+        "sentinel_name": "self-improving-claude/x",
+    }
+    result = grade_code(proposal, EXPECTED_HOOK)
+    assert result["checks"]["imperative_stderr"] == 10
+
+
+def test_imperative_stderr_catches_passive_bash_echo():
+    """Bash hooks that echo passive text to stderr must be caught."""
+    proposal = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Edit",
+        "script": 'echo "consider reviewing these references" >&2\nexit 2\n',
+        "script_lang": "bash",
+        "rationale": "x",
+        "sentinel_name": "self-improving-claude/x",
+    }
+    result = grade_code(proposal, EXPECTED_HOOK)
+    assert result["checks"]["imperative_stderr"] == 0
+
+
+def test_imperative_stderr_catches_passive_console_error():
+    """JS hooks using console.error with passive text must be caught."""
+    proposal = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Edit",
+        "script": 'console.error("Audit these usages");\nprocess.exit(2);\n',
+        "script_lang": "javascript",
+        "rationale": "x",
+        "sentinel_name": "self-improving-claude/x",
+    }
+    result = grade_code(proposal, EXPECTED_HOOK)
+    assert result["checks"]["imperative_stderr"] == 0
+
+
+def test_imperative_stderr_passes_imperative_js_template_literal():
+    """A JS template literal with an action phrase passes."""
+    proposal = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Edit",
+        "script": 'console.error(`BLOCKING: ${n} refs. Fix each. Do not stop.`);\n',
+        "script_lang": "javascript",
+        "rationale": "x",
+        "sentinel_name": "self-improving-claude/x",
+    }
+    result = grade_code(proposal, EXPECTED_HOOK)
+    assert result["checks"]["imperative_stderr"] == 10
+
+
+def test_imperative_stderr_adjacent_stdout_print_not_scanned():
+    """A stdout print's text must not bleed into the stderr scan."""
+    proposal = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Edit",
+        "script": (
+            'import sys\n'
+            'print("audit summary")\n'                      # stdout — must be ignored
+            'print(f"BLOCKING: {n}. Fix each. Do not stop.", file=sys.stderr)\n'
+        ),
+        "script_lang": "python",
+        "rationale": "x",
+        "sentinel_name": "self-improving-claude/x",
+    }
+    result = grade_code(proposal, EXPECTED_HOOK)
+    # "audit" lives only on the stdout line — must NOT trigger the banned check.
+    assert result["checks"]["imperative_stderr"] == 10

@@ -110,10 +110,40 @@ _STDERR_REQUIRED_RE = re.compile(
     r"\b(REQUIRED FOLLOW-UP|DO NOT STOP|FIX EACH|BLOCKING|DO NOT ASK)\b",
     re.IGNORECASE,
 )
-_STDERR_PRINT_RE = re.compile(
-    r'print\s*\(\s*["\']([^"\']+)["\'].*?file\s*=\s*sys\.stderr',
-    re.DOTALL,
-)
+# Stderr-writing calls across the three languages we generate.
+_JS_STDERR_CALL_RE = re.compile(r"console\.error\s*\((.*?)\)", re.DOTALL)
+_SH_STDERR_CALL_RE = re.compile(r"(?:echo|printf)\b(.*?)>&\s*2", re.DOTALL)
+# String literals: double / single / backtick. f-, r-, b- prefixes sit OUTSIDE
+# the quote, so capturing the quoted span works regardless of prefix.
+_STRING_LITERAL_RE = re.compile(r'"([^"]*)"|\'([^\']*)\'|`([^`]*)`')
+
+
+def _extract_stderr_strings(script: str) -> list[str]:
+    """Pull literal text from every stderr-writing call (Python / JS / bash).
+
+    Handles f-strings, r-strings, multiple calls, and JS template literals.
+    Interpolation braces ({name}, ${n}) stay inside the captured text —
+    harmless for phrase matching. Returns [] when the script writes no stderr.
+
+    Python prints are isolated per-call (split before each `print(`) so a
+    preceding stdout print cannot bleed its text into a later stderr scan.
+    """
+    regions: list[str] = []
+    for call in re.split(r"(?=\bprint\s*\()", script):
+        if re.search(r"file\s*=\s*sys\.stderr", call):
+            m = re.match(r"print\s*\((.*?)file\s*=\s*sys\.stderr", call, re.DOTALL)
+            if m:
+                regions.append(m.group(1))
+    for rx in (_JS_STDERR_CALL_RE, _SH_STDERR_CALL_RE):
+        regions.extend(rx.findall(script))
+
+    out: list[str] = []
+    for region in regions:
+        for dq, sq, bq in _STRING_LITERAL_RE.findall(region):
+            lit = dq or sq or bq
+            if lit:
+                out.append(lit)
+    return out
 
 
 _BLOCKING_EVENTS = {"PreToolUse", "Stop", "SubagentStop", "UserPromptSubmit"}
@@ -141,7 +171,7 @@ def _check_imperative_stderr(p: dict, e: dict) -> int:
     if p.get("form") != "command-hook":
         return 10  # not applicable
     script = p.get("script") or ""
-    stderr_strings = _STDERR_PRINT_RE.findall(script)
+    stderr_strings = _extract_stderr_strings(script)
     if not stderr_strings:
         return 10  # hook doesn't write to stderr — n/a
     combined = " ".join(stderr_strings)
