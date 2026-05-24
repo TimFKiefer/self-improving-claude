@@ -48,9 +48,9 @@ EXPECTED_001 = {
 def test_perfect_proposal_gets_full_marks():
     result = grade_code(PERFECT_BASH_BLOCK_HOOK, EXPECTED_001)
     assert result["mean"] == 10.0
-    # Each individual check should also pass
+    # Each applicable check passes; non-applicable checks are None (excluded).
     for check, score in result["checks"].items():
-        assert score == 10, f"Check {check!r} failed unexpectedly"
+        assert score in (None, 10), f"Check {check!r} failed unexpectedly"
 
 
 def test_grade_rejects_wrong_form():
@@ -276,14 +276,14 @@ def test_imperative_stderr_na_when_no_stderr_emitted():
         "sentinel_name": "self-improving-claude/silent-block",
     }
     result = grade_code(proposal, {"form": "command-hook", "event": "PreToolUse", "matcher": "Bash"})
-    assert result["checks"]["imperative_stderr"] == 10
+    assert result["checks"]["imperative_stderr"] is None
 
 
 def test_imperative_stderr_na_for_permissions_forms():
     """permissions.deny / permissions.ask have no script, hence no stderr — n/a."""
     proposal = {"form": "permissions.ask", "rule": "Bash(git push:*)", "rationale": "Ask before push"}
     result = grade_code(proposal, {"form": "permissions.ask", "rule_pattern_must_contain": "git push"})
-    assert result["checks"]["imperative_stderr"] == 10
+    assert result["checks"]["imperative_stderr"] is None
 
 
 def test_imperative_stderr_fails_on_partial_passive():
@@ -435,3 +435,72 @@ def test_imperative_stderr_adjacent_stdout_print_not_scanned():
     result = grade_code(proposal, EXPECTED_HOOK)
     # "audit" lives only on the stdout line — must NOT trigger the banned check.
     assert result["checks"]["imperative_stderr"] == 10
+
+
+# --- v0.3.4: applicable-checks denominator (N/A -> None) ---
+
+def test_na_checks_are_none_and_excluded():
+    proposal = {"form": "permissions.deny", "rule": "Read(**/.env*)",
+                "rationale": "block .env reads"}
+    expected = {"form": "permissions.deny", "rule_pattern": "Read(**/.env*)",
+                "rationale_must_mention": [".env"]}
+    r = grade_code(proposal, expected)
+    assert r["checks"]["event_matches"] is None
+    assert r["checks"]["matcher_matches"] is None
+    assert r["checks"]["script_parses"] is None
+    assert r["checks"]["sentinel_format"] is None
+    assert r["checks"]["imperative_stderr"] is None
+    assert r["mean"] == 10.0
+
+
+def test_wrong_form_scored_below_right_form():
+    expected = {"form": "command-hook", "event": "PostToolUse",
+                "matcher": "Edit", "rationale_must_mention": ["x"]}
+    right = {"form": "command-hook", "event": "PostToolUse", "matcher": "Edit",
+             "script": "import sys", "script_lang": "python",
+             "rationale": "x reason", "sentinel_name": "self-improving-claude/a"}
+    wrong = {**right, "form": "permissions.deny"}
+    assert grade_code(wrong, expected)["mean"] < grade_code(right, expected)["mean"]
+
+
+# --- v0.3.4: broadened imperative_stderr (intent, not literal tokens) ---
+
+def _post_hook(script):
+    return {"form": "command-hook", "event": "PostToolUse", "matcher": "Edit",
+            "script": script, "script_lang": "python",
+            "rationale": "x", "sentinel_name": "self-improving-claude/x"}
+
+
+def test_imperative_stderr_accepts_fix_directive():
+    p = _post_hook('import sys\nprint("ruff check failed. Fix the reported issues before continuing.", file=sys.stderr)\n')
+    assert grade_code(p, {"form": "command-hook"})["checks"]["imperative_stderr"] == 10
+
+
+def test_imperative_stderr_still_fails_neutral_found_message():
+    p = _post_hook('import sys\nprint("Found 3 references.", file=sys.stderr)\n')
+    assert grade_code(p, {"form": "command-hook"})["checks"]["imperative_stderr"] == 0
+
+
+# --- v0.3.4: form/event set-membership + rules_present ---
+
+def test_form_set_membership():
+    expected = {"form": ["prompt-hook", "command-hook"]}
+    assert grade_code({"form": "command-hook"}, expected)["checks"]["form_matches"] == 10
+    assert grade_code({"form": "prompt-hook"}, expected)["checks"]["form_matches"] == 10
+    assert grade_code({"form": "permissions.deny"}, expected)["checks"]["form_matches"] == 0
+
+
+def test_event_set_membership():
+    expected = {"form": "command-hook", "event": ["PreToolUse", "PostToolUse"]}
+    p = {"form": "command-hook", "event": "PostToolUse", "script": "import sys",
+         "script_lang": "python", "rationale": "y",
+         "sentinel_name": "self-improving-claude/x"}
+    assert grade_code(p, expected)["checks"]["event_matches"] == 10
+
+
+def test_required_rules_presence():
+    expected = {"form": "permissions.deny",
+                "required_rules": ["src/generated/prisma", "prisma/dev.db"]}
+    p = {"form": "permissions.deny", "rule": "Edit(src/generated/prisma/**)",
+         "rationale": "block generated"}
+    assert grade_code(p, expected)["rules_present"] == ["src/generated/prisma"]
