@@ -103,3 +103,77 @@ def grade_model(*, proposal: dict, planted_problem: str, client, judge_model: st
         "weaknesses": parsed.get("weaknesses", []),
         "reasoning": parsed.get("reasoning", ""),
     }
+
+
+BATCH_SYSTEM = """You are an expert reviewer of Claude Code hook proposals. \
+Score each candidate against the planted problem it must solve. Be concrete and \
+honest: low scores for proposals that don't solve the problem, high scores for those \
+that do. Do NOT default every item to a middling 6 — spread your scores to reflect \
+real differences."""
+
+BATCH_TEMPLATE = """<planted_problem>
+{planted_problem}
+</planted_problem>
+
+Score how well EACH of the {n} candidate proposals below solves the planted problem.
+Judge what the proposal DOES, not how it is phrased. Scale: 10 = exactly solves it,
+7-9 strong, 4-6 partial, 1-3 misses the point, 0 irrelevant.
+
+{proposals_block}
+
+Respond with ONLY a single-line minified JSON array — one object per proposal, in the
+same order, each with "reasoning" BEFORE "score":
+[{{"index":0,"reasoning":"<one clause>","score":<int 0-10>}}, ...]
+No markdown fences, no prose before or after."""
+
+
+def _proposals_block(items: list[dict]) -> str:
+    parts = [f'<proposal index="{i}">\n{json.dumps(p)}\n</proposal>' for i, p in enumerate(items)]
+    return "<proposals>\n" + "\n".join(parts) + "\n</proposals>"
+
+
+def grade_model_batch(*, items: list[dict], planted_problem: str, client,
+                      judge_model: str = GRADER_MODEL) -> list[dict]:
+    """Score a LIST of proposals against one planted problem in a SINGLE judge call.
+
+    Returns a list aligned to `items` by index; each:
+      {"valid": bool, "score": int|None, "reasoning": str, "error": str|None}
+    A missing item or an unparseable response yields valid=False/score=None for the
+    affected items — never a misleading 0 (eval-methodology.md §3 + v0.3.4 fix).
+    """
+    if not items:
+        return []
+    user_msg = BATCH_TEMPLATE.format(
+        planted_problem=planted_problem, n=len(items),
+        proposals_block=_proposals_block(items),
+    )
+    response = client.messages.create(
+        model=judge_model,
+        max_tokens=min(4096, 256 + 200 * len(items)),
+        system=BATCH_SYSTEM,
+        messages=[{"role": "user", "content": user_msg}],
+    )
+    text = response.content[0].text
+    try:
+        parsed = json.loads(_extract_json(text))
+        if not isinstance(parsed, list):
+            raise ValueError("expected a JSON array")
+    except (json.JSONDecodeError, ValueError) as e:
+        return [{"valid": False, "score": None, "reasoning": "",
+                 "error": f"batch_parse_error: {e}"} for _ in items]
+
+    by_index = {o["index"]: o for o in parsed if isinstance(o, dict) and "index" in o}
+    out: list[dict] = []
+    for i in range(len(items)):
+        obj = by_index.get(i)
+        if obj is None:
+            out.append({"valid": False, "score": None, "reasoning": "", "error": "missing_item"})
+            continue
+        try:
+            score = max(0, min(10, int(obj.get("score"))))
+        except (TypeError, ValueError):
+            out.append({"valid": False, "score": None,
+                        "reasoning": obj.get("reasoning", ""), "error": f"bad_score: {obj.get('score')!r}"})
+            continue
+        out.append({"valid": True, "score": score, "reasoning": obj.get("reasoning", ""), "error": None})
+    return out

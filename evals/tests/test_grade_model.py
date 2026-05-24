@@ -163,3 +163,47 @@ def test_grade_model_defaults_to_grader_model():
     c = _FakeClientV34('{"strengths":[],"weaknesses":[],"reasoning":"x","score":7}')
     grade_model(proposal={"form": "x"}, planted_problem="p", client=c)
     assert c.last_kwargs["model"] == GRADER_MODEL
+
+
+from types import SimpleNamespace as _NS
+from evals.grade_model import grade_model_batch
+
+
+def test_grade_model_batch_scores_in_order_and_routes_judge():
+    c = _FakeClientV34('[{"index":0,"reasoning":"good","score":9},{"index":1,"reasoning":"bad","score":2}]')
+    out = grade_model_batch(items=[{"a": 1}, {"a": 2}], planted_problem="p",
+                            client=c, judge_model="claude-sonnet-4-5")
+    assert [o["score"] for o in out] == [9, 2]
+    assert all(o["valid"] for o in out)
+    assert c.last_kwargs["model"] == "claude-sonnet-4-5"
+
+
+def test_grade_model_batch_maps_by_index_not_position():
+    c = _FakeClientV34('[{"index":1,"reasoning":"b","score":3},{"index":0,"reasoning":"a","score":8}]')
+    out = grade_model_batch(items=[{"a": 0}, {"a": 1}], planted_problem="p", client=c, judge_model="x")
+    assert out[0]["score"] == 8 and out[1]["score"] == 3
+
+
+def test_grade_model_batch_missing_item_is_invalid_not_zero():
+    c = _FakeClientV34('[{"index":0,"reasoning":"ok","score":7}]')   # index 1 omitted
+    out = grade_model_batch(items=[{"a": 1}, {"a": 2}], planted_problem="p", client=c, judge_model="x")
+    assert out[0]["score"] == 7
+    assert out[1]["valid"] is False and out[1]["score"] is None
+
+
+def test_grade_model_batch_unparseable_marks_all_invalid():
+    c = _FakeClientV34("not json at all")
+    out = grade_model_batch(items=[{"a": 1}, {"a": 2}], planted_problem="p", client=c, judge_model="x")
+    assert all((not o["valid"] and o["score"] is None) for o in out)
+
+
+def test_grade_model_batch_empty_makes_no_call():
+    calls = []
+    class _C:
+        def __init__(self):
+            self.messages = _NS(create=self._c)
+        def _c(self, **k):
+            calls.append(k)
+            return _NS(content=[_NS(type="text", text="[]")])
+    out = grade_model_batch(items=[], planted_problem="p", client=_C(), judge_model="x")
+    assert out == [] and calls == []
