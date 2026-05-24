@@ -13,6 +13,8 @@
 
 **What v0.4 is about (in one sentence):** v0.3.x made the orchestrator pick the right *form* and write the right *text*; v0.4 gives it a new structural primitive — composed hooks that can actually **enforce** post-action follow-through, not just suggest it.
 
+**What v0.4 is also about (added 2026-05-24, from the v0.3.2 analysis):** giving the eval *behavioral* eyes (does the generated hook actually fire when installed?) and re-grounding the knowledge base. These are not side-quests: a loop-closing, proactively-surfacing plugin (Track 2) must only push guardrails it can *vouch* for, and the orchestrator's grounding must match what the plugin actually relies on. See new Track 6 (eval integrity) and Track 7 (knowledge re-grounding). The small, non-structural slice of the v0.3.2 analysis ships first as **v0.3.3** — see `docs/superpowers/plans/2026-05-24-self-improving-claude-v0.3.3.md`.
+
 ---
 
 ## Track 1 — Composed PostToolUse + Stop hooks (the headline feature)
@@ -223,6 +225,66 @@ v0.3.x produced a meta-pattern: dogfood → write feedback memory → patch in n
 
 ---
 
+## Track 6 — Eval integrity & trustworthy generation (added 2026-05-24)
+
+The v0.3.2 analysis surfaced that the eval measures *proposal shape*, not *runtime behavior* — and that the harness grades a proxy, not the shipped skill. These gaps are tolerable while the plugin is pull-only (the human reviews every proposal). They become **blocking** the moment Track 2 starts *pushing* proposals proactively: you cannot auto-surface a guardrail you can't vouch for. Track 6 gives the eval behavioral eyes and removes the proxy.
+
+### 6.1 Verify-before-surface — behavioral / integration harness (the trust enabler)
+
+`eval-methodology.md §5` names this explicitly and v0.3 spec §5 deferred it: the eval never installs a generated hook and confirms it *fires*. A proposal can score 10/10 and be a hook that no-ops — and the v0.3.1/v0.3.2 enforcement-shape saga (a hook that "passes every check yet fails to compel action") is precisely a *behavioral* failure a shape-eval is structurally blind to.
+
+Build a sandbox harness that, for a generated proposal:
+- writes the hook + settings.json into a throwaway temp project
+- starts a scoped Claude Code session (or drives the hook script directly with a synthetic stdin payload from `tools-reference.md`)
+- triggers the matching tool and asserts the observable effect: PreToolUse exit-2 blocks; PostToolUse stderr is emitted; a formatter actually ran; a permissions rule actually denies/asks
+- returns a pass/fail + captured evidence
+
+**Cross-reference Track 2:** this is what makes auto-collect safe. Each proactively-surfaced candidate carries a `✓ verified: blocks X / allows Y` line produced by this harness. Without 6.1, Track 2 is a nagging-risk; with it, it's trustworthy.
+
+Start with the canonical hooks (the 5 worked examples) as hand-written integration tests; generalize to "verify any proposal" once the harness shape is proven.
+
+### 6.2 Eval the real `SKILL.md`, not the `prompt_template.md` proxy
+
+`evals/run.py` assembles its prompt from `evals/prompt_template.md` + the five `references/*.md` — it **never reads `SKILL.md`**. The orchestrator's actual procedure (routing, self-critique, the Step-7 stderr check, the approval loop) is untested, and the Step-4 form ladder now lives in **three** places that must stay in sync (`SKILL.md`, `prompt-rubric.md`, `prompt_template.md`). A SKILL regression can pass green.
+
+v0.4 work: either drive the eval through the real skill body, or generate `prompt_template.md` from `SKILL.md` so there is one source. Pairs naturally with Track 7's single-sourcing.
+
+### 6.3 Noise-penalizing aggregation + a fixed grader
+
+- `run.py:_aggregate` takes the **max** across a fixture's proposals — 1 great + 2 junk scores identically to 1 clean great one. The real UX cost of junk (and of over-proposing) is invisible. Add a penalty for low-quality extra proposals, or report both max and mean so noise is visible.
+- The model-grader uses the **same model family** as the proposer (Opus grades Opus). Switch to one fixed strong grader so cross-model numbers are comparable and self-grading bias is removed.
+
+### 6.4 Negative / restraint fixtures (needs grader support)
+
+Every current fixture is a positive case ("should propose X"). None tests restraint ("should propose **nothing**" or "this tempting guardrail would over-block"). Restraint is the trust-critical dimension and is currently unmeasured.
+
+- Extend `dataset.json` + `run.py` with an `expect_no_proposal: true` mode: score 10 when the orchestrator proposes nothing (or declines the tempting-but-wrong form), 0 otherwise.
+- Add 2-3 negative fixtures (e.g. a project where a `permissions.deny` would block legitimate work; a one-off bug that doesn't warrant any standing guardrail).
+
+---
+
+## Track 7 — Knowledge re-grounding & single-source references (added 2026-05-24)
+
+The v0.3.2 analysis's headline meta-finding: **the implementation has outrun its knowledge base.** `docs/knowledge/` grounded v0.1; the plugin now relies on facts it never captured, and in one file still lists resolved questions as open. This track re-grounds the docs and eliminates the dual/triple-copy drift at its root.
+
+### 7.1 Back-propagate resolved facts into `docs/knowledge/`
+
+- `plugins-and-skills.md` is still marked "biggest gap / low-medium confidence," lists as *open* questions that v0.3 answered (marketplace.json works; `@../` cross-dir mentions do **not** resolve → inline fallback; plugin hooks register via `hooks.json`), and shows the **abandoned** `skills/self-improving-claude/shared/` layout. Rewrite it to current reality.
+- The `type:"prompt"` hook contract (`permissionDecision: deny` / "respond deny/allow"), the advanced JSON hook output, `Stop` force-continue, `${CLAUDE_PLUGIN_ROOT}`/`${CLAUDE_PROJECT_DIR}`, and the `marketplace.json` schema are all **relied upon but uncaptured** in the knowledge base (they live only in skill `references/`). The prompt-hook form especially is the least-grounded, least-verified output the plugin emits — capture and verify it.
+
+### 7.2 Single-source the references (supersedes Track 3.4)
+
+v0.3's inline fallback created 4 dual-copy reference pairs + the procedure body in both SKILL.md files. Track 3.4 proposed a byte-identical *guard*; that's a band-aid. The real fix is to make `plugin/skills/*/references/*.md` (and the eval's `prompt_template.md` form-ladder) **generated** from `docs/knowledge/` so there is exactly one source of truth.
+
+- Build a small `scripts/sync_references.py` that renders the runtime references from the knowledge base, run in pre-commit/CI.
+- Keep Track 3.4's byte-identical check as the transition guard until generation is in place.
+
+### 7.3 Re-probe `@../` resolution (also Open Question #6)
+
+If a current Claude Code version resolves `@../shared/...` from inside a skill directory, the entire inline-duplication burden disappears — revert to a single `shared/` directory and delete the copies. A 5-minute probe at v0.4 start; do it before 7.2 (it may make the generator unnecessary).
+
+---
+
 ## Open design questions (resolve before v0.4 implementation)
 
 1. **State-file granularity.** One file per composed-hook pair (`state/<slug>.jsonl`) or one shared file across all pairs (`state.jsonl` with discriminator field)? Tradeoff: per-pair is cleaner for cleanup; shared is simpler for the Stop hook to read. Tentative: per-pair.
@@ -241,7 +303,7 @@ v0.3.x produced a meta-pattern: dogfood → write feedback memory → patch in n
 
 6. **Dual-copy: keep inline, or revisit `@../shared/` probe?** The v0.3 probe failed; maybe a newer Claude Code version supports `@../` traversal? Worth a 5-minute re-probe at v0.4 start. If it works now, eliminates the duplication burden entirely.
 
-7. **Should there be a v0.3.3?** Some Track 3 items (fixture 004 redesign, dual-copy automation) are small and could ship as v0.3.3 patches before the bigger v0.4 structural work. Decide during brainstorming.
+7. **Should there be a v0.3.3?** ✅ **Decided — yes, and it's planned.** A "measurement & correctness hygiene" release: `docs/superpowers/plans/2026-05-24-self-improving-claude-v0.3.3.md`. Scope: fix the leaky `imperative_stderr` grader (f-strings/bash/JS), productize the `claude-cli` eval backend, re-score the dataset, capture telemetry `kind`/`reason`/`source`, fix the dangling uninstall reference. It deliberately **excludes** the structural and eval-rework items — fixture-004 redesign (Track 3.2), dual-copy automation (Track 3.4), the verify-before-surface harness (Track 6.1), and knowledge re-grounding (Track 7) all stay v0.4. Rationale: v0.3.3 makes the v0.3.1/v0.3.2 work measurable and reproducible so v0.4's structural change lands on solid ground.
 
 ---
 
@@ -270,10 +332,18 @@ Rough sizing (subject to writing-plans output):
 | 3. Quality & eval | ~4-5 | Low-medium | Low — incremental |
 | 4. Distribution | ~3-4 | Medium | Medium — CI config, marketplace PR external |
 | 5. Cleanup | ~2-3 | Low | Low |
+| 6. Eval integrity & trustworthy generation | ~5-7 | Medium-high | Medium — sandbox harness is new infra; **gates** Track 2's safety |
+| 7. Knowledge re-grounding & single-source | ~3-4 | Medium | Low-medium — touches build/docs, not runtime |
 
-**Rough total:** 18-24 tasks. Similar order of magnitude to v0.3 (10 tasks). v0.4 is genuinely bigger because Track 1 is a new primitive (form 5b composed hooks) that touches the orchestrator's mental model.
+**Rough total:** 26-35 tasks (was 18-24 before the v0.3.2 analysis added Tracks 6-7; minus the ~5 hygiene tasks now peeled off into v0.3.3). v0.4 is genuinely bigger than v0.3 (10 tasks) because Track 1 is a new primitive AND Track 6 gives the eval behavioral eyes for the first time.
 
-Could realistically slice into v0.4.0 (Track 1 + 2 — the headline feature) and v0.4.1 (Tracks 3 + 4 + 5 — polish + distribution). Decide during brainstorming.
+Suggested slicing:
+- **v0.3.3** (shipped first, separate plan) — measurement & correctness hygiene.
+- **v0.4.0** — Track 1 (composed hooks) + Track 6.1 (verify-before-surface). Ship the enforcement primitive *with* the harness that proves generated hooks fire — they reinforce each other.
+- **v0.4.1** — Track 2 (auto-collect, now safe to push because 6.1 verifies) + the rest of Track 6 (proxy removal, scoring, restraint fixtures).
+- **v0.4.2** — Tracks 3 + 4 + 5 + 7 (polish, distribution, re-grounding).
+
+Decide the exact cut during brainstorming.
 
 ---
 
