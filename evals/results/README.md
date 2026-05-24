@@ -131,7 +131,7 @@ Mean of 7 deterministic checks (form / event / matcher / script parses / sentine
 
 ### Model Grade
 
-LLM grader's score 0–10 (the grader uses the same model family as the proposer for each run — Haiku grades Haiku proposals, Opus grades Opus, etc.).
+LLM grader's score 0–10. **(Historical note: these v0.3 numbers were produced with the grader matching the proposer family — Haiku grades Haiku, Opus grades Opus. v0.3.4 changed this: the grader is now pinned to Haiku for *every* run so columns are comparable — see the v0.3.4 section below.)**
 
 | fixture | v0.2 (gemma4) | v0.3 gemma4 | v0.3 Haiku | v0.3 Sonnet | v0.3 Opus |
 |---|---:|---:|---:|---:|---:|
@@ -186,6 +186,56 @@ First re-score since v0.3.0, and the first run with the **8-check grader** — t
 - The 7.1→6.1 drop is driven entirely by gemma emitting **no parseable JSON** for fixtures 003 and 004 this run (`forms=[]` → 0.0). This is the documented gemma small-model truncation: different fixtures fail on different runs (006 truncated in the v0.3 gemma run but succeeded here).
 - Net: treat the gemma baseline as a **regression tripwire**, not a quality signal. For a clean read of the v0.3.1/v0.3.2/v0.3.3 changes, run the frontier reference: `EVAL_BACKEND=claude-cli CLAUDE_CLI_MODEL=haiku python3 -m evals.run`.
 
+---
+
+## Results — v0.3.4 baselines (current)
+
+> **⚠️ Scoring semantics changed in v0.3.4 — these numbers are NOT directly comparable to ≤v0.3.3.** Changes: (1) code grade now averages only *applicable* checks (N/A excluded, no free passes); (2) fixtures 002/003/004 reconciled with their planted problems (002 gold → `Read(**/.env*)`, 003 → two-path `required_rules` coverage, 004 accepts prompt-hook OR PostToolUse command-hook); (3) model grade returns *no data* on truncation instead of 0; (4) **the grader is pinned to Haiku for every run** (proposer varies), so the Model Grade columns are comparable. Files: `2026-05-24-v0.3.4-{gemma,haiku,sonnet,opus}.json`.
+
+### Code Grade (max across proposals; applicable-checks denominator)
+
+| fixture | gemma4 | Haiku | Sonnet (200k) | Opus |
+|---|---:|---:|---:|---:|
+| 001-pnpm-test-watcher | 10.0 | 10.0 | 10.0 | 8.6 |
+| 002-block-env-reads | 6.7 | 10.0 | 6.7 | 6.7 |
+| 003-prisma-generated-protection | 10.0 | 10.0 | 10.0 | 10.0 |
+| 004-recursion-prevention | 10.0 | 8.6 | 10.0 | 10.0 |
+| 005-format-on-write | 7.1 | 8.6 | 7.1 | 10.0 |
+| 006-rename-callers | 8.6 | 10.0 | 8.6 | 10.0 |
+| 007-git-push-warn | 6.7 | 10.0 | 10.0 | 6.7 |
+| **AVERAGE** | **8.4** | **9.6** | **8.9** | **8.8** |
+
+### Model Grade (grader = Haiku for ALL runs)
+
+| fixture | gemma4 | Haiku | Sonnet (200k) | Opus |
+|---|---:|---:|---:|---:|
+| 001-pnpm-test-watcher | 7 | 8 | 7 | 8 |
+| 002-block-env-reads | 9 | 8 | 2 | 3 |
+| 003-prisma-generated-protection | 4 | 4 | 3 | 3 |
+| 004-recursion-prevention | 6 | 7 | 7 | 5 |
+| 005-format-on-write | 4 | 6 | 2 | 7 |
+| 006-rename-callers | 5 | 4 | 6 | 7 |
+| 007-git-push-warn | 7 | 6 | 4 | 7 |
+| **AVERAGE** | **6.0** | **6.1** | **4.4** | **5.7** |
+
+### Clean rate + coverage (new v0.3.4 metrics)
+
+| backend | avg clean_rate | 003 coverage |
+|---|---:|---:|
+| gemma4 | 0.71 | 0.50 |
+| Haiku | 0.81 | 0.50 |
+| Sonnet | 0.86 | 0.50 |
+| Opus | 0.71 | 0.50 |
+
+### What the v0.3.4 data shows
+
+- **The truncation artifact is gone.** Zero invalid/parse-failed model grades on *any* backend this run, including gemma (which logged several truncation-0s pre-v0.3.4). gemma's model average is now a real signal (6.0), not a parsing floor (was 2.9).
+- **003 coverage is 0.50 on every model** — all four cover only *one* of the two forbidden prisma paths. The old max-only grade hid this as a clean 10.0; the coverage metric exposes the consistent gap (a genuine orchestrator weakness for two-pronged protections, candidate for a future prompt fix).
+- **The 002 contradiction is resolved.** Haiku now scores 002 at code 10 / model 8 (gold and planted problem agree). Opus/Sonnet score it lower on *both* axes — genuinely weaker proposals against the corrected gold, no longer masked.
+- **Grader pinned to Haiku makes columns comparable.** Sonnet's lower model average (4.4) reflects weaker proposals as judged by one consistent grader — not grader drift.
+
+---
+
 ## How to reproduce
 
 From the repo root:
@@ -227,5 +277,9 @@ EVAL_BACKEND=claude-cli CLAUDE_CLI_MODEL=opus python3 -m evals.run
 | `2026-05-23-v0.3-sonnet.json` | v0.3 baseline against Sonnet 4.5 (200k, subscription) |
 | `2026-05-23-v0.3-opus.json` | v0.3 baseline against Opus 4.7 (1M default, subscription) |
 | `2026-05-24-v0.3.3-gemma.json` | v0.3.3 re-score against gemma4 (first run with the 8-check grader; see the v0.3.3 note above) |
+| `2026-05-24-v0.3.4-gemma.json` | v0.3.4 baseline, gemma4 (new scoring semantics; grader pinned to Haiku) |
+| `2026-05-24-v0.3.4-haiku.json` | v0.3.4 baseline, Haiku proposer (grader Haiku) |
+| `2026-05-24-v0.3.4-sonnet.json` | v0.3.4 baseline, Sonnet 4.5 200k proposer (grader Haiku) |
+| `2026-05-24-v0.3.4-opus.json` | v0.3.4 baseline, Opus 4.7 proposer (grader Haiku) |
 
 Each result JSON contains: `date`, `model`, full per-entry `results` (proposals + code_grades + model_grades + raw_response_head), and a `summary` block (per-entry maxes + averages).
