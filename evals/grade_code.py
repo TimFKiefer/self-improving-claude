@@ -100,6 +100,61 @@ def _check_rule_pattern(p: dict, e: dict) -> int:
     return 10
 
 
+# Rubric criterion 12 (v0.3.1+): command-hooks that emit stderr feedback must use
+# imperative voice. Banned phrasing licenses inaction; required phrasing compels it.
+_STDERR_BANNED_RE = re.compile(
+    r"\b(audit|consider|verify|review)\b|\bor\b\s+\S+\s+\bis\s+unrelated\b",
+    re.IGNORECASE,
+)
+_STDERR_REQUIRED_RE = re.compile(
+    r"\b(REQUIRED FOLLOW-UP|DO NOT STOP|FIX EACH|BLOCKING|DO NOT ASK)\b",
+    re.IGNORECASE,
+)
+_STDERR_PRINT_RE = re.compile(
+    r'print\s*\(\s*["\']([^"\']+)["\'].*?file\s*=\s*sys\.stderr',
+    re.DOTALL,
+)
+
+
+_BLOCKING_EVENTS = {"PreToolUse", "Stop", "SubagentStop", "UserPromptSubmit"}
+
+
+def _check_imperative_stderr(p: dict, e: dict) -> int:
+    """For command-hooks whose scripts write to stderr, verify imperative voice.
+
+    Per rubric criterion 12 (v0.3.1+): banned phrasing ("audit", "consider",
+    "verify these are", "review", "or X is unrelated") licenses model inaction.
+    Required phrasing ("REQUIRED FOLLOW-UP", "Do not stop", "Fix each",
+    "BLOCKING", "Do not ask") compels action.
+
+    Event-aware strictness:
+    - Blocking events (PreToolUse / Stop / SubagentStop / UserPromptSubmit) — the
+      hook's exit-2 actually halts the model. Stderr is the explanation, not the
+      enforcement. Banned phrasing is still flagged, but we don't require the
+      strong action-forcing keywords (a simple "Use X instead" is fine).
+    - PostToolUse and other non-blocking events — exit-2 only feeds context to a
+      free-to-keep-going model. The stderr IS the enforcement mechanism. Require
+      both: no banned phrasing AND at least one required action phrase.
+
+    Returns 10 (n/a or pass), 0 (fail).
+    """
+    if p.get("form") != "command-hook":
+        return 10  # not applicable
+    script = p.get("script") or ""
+    stderr_strings = _STDERR_PRINT_RE.findall(script)
+    if not stderr_strings:
+        return 10  # hook doesn't write to stderr — n/a
+    combined = " ".join(stderr_strings)
+    if _STDERR_BANNED_RE.search(combined):
+        return 0
+    if p.get("event") in _BLOCKING_EVENTS:
+        return 10  # blocking event — stderr is explanation, banned-only check
+    # Non-blocking event (PostToolUse, etc.) — require an action-forcing phrase
+    if not _STDERR_REQUIRED_RE.search(combined):
+        return 0
+    return 10
+
+
 _CHECKS = {
     "form_matches": _check_form_matches,
     "event_matches": _check_event_matches,
@@ -107,6 +162,7 @@ _CHECKS = {
     "script_parses": _check_script_parses,
     "sentinel_format": _check_sentinel_format,
     "rationale_keywords": _check_rationale_keywords,
+    "imperative_stderr": _check_imperative_stderr,
     "rule_pattern": _check_rule_pattern,
 }
 

@@ -26,7 +26,21 @@ Every proposal you draft must satisfy every item below before you show it to the
 
 11. **Enforcement-shape check.** For rules of shape "after X, the model must do Y" (where Y is multi-step or scope-expanding), recognize that PostToolUse exit-2 stderr is *informational*, not *imperative* — the model may summarize and stop instead of acting. If the rule genuinely requires action, prefer a form that can BLOCK (`permissions.deny` / `permissions.ask` when a glob fits). If you stay with PostToolUse alone, the rationale must name explicitly why surfacing alone is sufficient here (typically: "this is a one-shot nudge", not "the model must act now"). Composed PostToolUse+Stop hooks are the structural fix for genuine enforcement — slated for v0.4.
 
-12. **Imperative stderr.** Hook scripts that surface context via stderr MUST use imperative voice. Required phrasing: "REQUIRED FOLLOW-UP", "Do not stop until", "Fix each, then summarize", "Update X, then proceed". Banned phrasing (treat as a rubric failure — revise before showing the user): "audit", "consider", "verify these are", "review", "or X is unrelated" (the escape hatch). The cost-of-asking must exceed the cost-of-acting — passive phrasing inverts that and licenses inaction.
+12. **Imperative stderr.** Hook scripts that surface context via stderr MUST use imperative voice. Required phrasing: "REQUIRED FOLLOW-UP", "Do not stop until", "Fix each, then summarize", "Update X, then proceed", "BLOCKING". Banned phrasing (treat as a rubric failure — revise before showing the user): "audit", "consider", "verify these are", "review", "or X is unrelated" (the escape hatch). The cost-of-asking must exceed the cost-of-acting — passive phrasing inverts that and licenses inaction.
+
+   **Concrete bad/good pairs** (for PostToolUse hooks specifically — PreToolUse exit-2 blocks the tool, so its stderr is just explanation):
+
+   ❌ Passive (would let the model summarize-and-stop):
+   > "Verify these are consistent with your change."
+   > "Audit hardcoded usages or verify the usage is unrelated."
+   > "Found N references. Review them for correctness."
+
+   ✅ Imperative (forces action):
+   > "REQUIRED FOLLOW-UP: N stale references remain. Fix each, then summarize. Do not stop until done."
+   > "BLOCKING: update each reference, then continue."
+   > "Update each occurrence to the new value, then proceed. Do not ask."
+
+   The pattern: lead with `REQUIRED FOLLOW-UP` or `BLOCKING`, name the action verb explicitly (`Fix`, `Update`, not `verify`/`audit`), close with `Do not stop` / `Do not ask`. Brevity beats argumentation — short imperatives override scope discipline more reliably than long justifications.
 
 ## Disqualifiers (drop the candidate immediately)
 

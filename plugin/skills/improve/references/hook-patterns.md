@@ -7,7 +7,7 @@ The patterns you need at draft time. For the full rationale, see the project's `
 | Event | Fires when | Can block? | Supports `type: prompt`? |
 |---|---|---|---|
 | PreToolUse | Before a tool runs | Yes (exit 2 / `permissionDecision: deny`) | Yes |
-| PostToolUse | After a tool ran | No, but stderr is fed back to Claude | No |
+| PostToolUse | After a tool ran | No*, but stderr is fed back to Claude | No |
 | UserPromptSubmit | User submits a prompt | Yes (block before model sees it) | Yes |
 | Stop | Main agent considers stopping | Yes (force continue) | Yes |
 | SubagentStop | Subagent considers stopping | Yes | Yes |
@@ -15,6 +15,10 @@ The patterns you need at draft time. For the full rationale, see the project's `
 | SessionEnd | Session ends | No | No |
 | PreCompact | Before context compaction | No | No |
 | Notification | A notification is sent | No | No |
+
+\* **PostToolUse limitation.** Exit-2 stderr feeds the model *information*, not an imperative — the model can summarize and stop instead of acting on the feedback. For rules of shape "after X, ensure Y" where Y requires multi-step follow-up:
+- Strong imperative phrasing (rubric criterion 12: `REQUIRED FOLLOW-UP`, `Do not stop`, `Fix each`) helps but doesn't guarantee compliance.
+- For genuine enforcement, prefer a `permissions.deny` / `permissions.ask` rule when a glob fits, OR wait for v0.4's composed PostToolUse + Stop pattern (paired hooks sharing a state file; the Stop hook re-verifies findings and blocks turn-end if they persist).
 
 ## Where to write hook entries
 

@@ -136,6 +136,12 @@ For each candidate, consider these forms in order. Use the FIRST one that's *via
 
 5. **Command-hook on PostToolUse** — if the check needs to SURFACE context (grep results, formatter output, type errors) back to Claude AFTER an action. Often the right answer for "after editing X, show Y." Cheap, deterministic, no model call. Don't skip this form when reasoning about hooks — it's frequently the right answer for "feed information back" rules.
 
+   **⚠ Before selecting form 5, apply rubric criterion 11 (enforcement-shape check) right now**: is the rule's failure mode "model sees info and shrugs"? If yes, PostToolUse exit-2 stderr feeds *information*, not *imperative* — the model may summarize and stop. Two options:
+   - **Move up** to a `permissions.*` form if a glob can express the rule
+   - **Stay** with PostToolUse only if you can name explicitly in the rationale why surfacing-alone suffices for THIS rule (e.g. "one-shot nudge for the next session, not multi-step follow-up")
+
+   Composed PostToolUse + Stop hooks (the structural fix for "must enforce after-X-do-Y") are slated for v0.4. Until then, if you DO ship form 5 for an enforcement-shaped rule, criterion 12 (imperative stderr) is non-negotiable — see the bad/good pairs in the rubric.
+
 6. **Last resort: `CLAUDE.md` note** — only for taste-level preferences with zero enforcement need (e.g. "prefer pnpm over npm"). Never for ordering rules ("before X do Y") or context-surfacing rules ("after X show Y") — those need an enforceable form.
 
 Prefer the lighter form when both would work. Lighter means cheaper to run, easier to audit, less code to maintain. But don't strain to make a glob fit a rule that genuinely needs logic — the priority is a guide, not an algorithm.
@@ -161,17 +167,21 @@ Reread your draft against the rubric with fresh eyes. If anything is off, revise
 
 Edge case: if a candidate is *almost* there and you suspect the user would still want it, use `AskUserQuestion` to surface the trade-off rather than dropping it silently.
 
-## Step 7 — Validate syntax AND behavior before showing the user
+## Step 7 — Validate syntax AND stderr discipline before showing the user
 
 **Syntax checks.** Run the obvious ones for the form you produced — `bash -n`, `python -m py_compile`, `node --check`, JSON parse, glob shape. A draft that doesn't pass these never reaches the user.
 
-**Behavioral check.** For any command-hook that emits stderr feedback (especially on PostToolUse), render the literal stderr text the model would see and ask yourself:
+**Stderr discipline check (deterministic).** For any command-hook that prints to stderr, extract the literal stderr strings from the script body. Apply BOTH rules:
 
-> *If I were Claude in auto-mode and read ONLY this stderr after my Edit, would I continue the work or would I summarize and ask the user?*
+1. **No banned phrasing.** If the combined stderr contains any of `audit`, `consider`, `verify`, `review`, or the construct `or <X> is unrelated` (case-insensitive), the message licenses inaction. Banned-phrase match → fail.
 
-If you'd likely ask, the message is too passive — revise to imperative voice per rubric criterion 12. This catches the failure mode where the proposal is structurally fine (passes all syntax + form checks) but behaviorally weak (model reads it as info and shrugs).
+2. **Action-forcing phrasing required for non-blocking events.** If `event` is `PostToolUse` (or any other event that does NOT halt the model — i.e. not in `{PreToolUse, Stop, SubagentStop, UserPromptSubmit}`), the stderr MUST contain at least one of `REQUIRED FOLLOW-UP`, `Do not stop`, `Fix each`, `BLOCKING`, `Do not ask`. Absent any of these → fail. For genuinely blocking events the stderr is just explanation, so banned-phrase check alone suffices.
 
-Better silently dropped than visibly broken — but ALSO better revised to imperative voice than silently shipping a hook that will fail to enforce.
+This is the deterministic version of "would I, reading only this, continue without asking?" — pattern matching is more reliable than self-introspection.
+
+**Retry loop.** If the stderr discipline check fails, revise the stderr strings per criterion 12 (see the bad/good pairs) and re-check. Cap at 2 retries. If the revised version still fails, drop the candidate and note one-line why — usually a sign the form choice itself was wrong (criterion 11) and you should re-do Step 4.
+
+Better revised than shipped weak; better dropped than visibly broken.
 
 ## Step 8 — Walk the user through approvals, one at a time
 

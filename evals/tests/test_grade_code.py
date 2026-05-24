@@ -194,3 +194,132 @@ def test_grade_rule_pattern_must_contain_substring():
     expected = {"form": "permissions.deny", "rule_pattern_must_contain": ".env", "rationale_must_mention": [".env"]}
     result = grade_code(proposal, expected)
     assert result["checks"]["rule_pattern"] == 10
+
+
+# --- imperative_stderr check (rubric criterion 12) ---
+
+_IMPERATIVE_SCRIPT = """\
+import json, sys
+def main():
+    ev = json.load(sys.stdin)
+    print("REQUIRED FOLLOW-UP: N stale references remain.", file=sys.stderr)
+    print("Fix each, then summarize. Do not stop.", file=sys.stderr)
+    return 2
+if __name__ == "__main__":
+    sys.exit(main())
+"""
+
+_PASSIVE_SCRIPT = """\
+import json, sys
+def main():
+    ev = json.load(sys.stdin)
+    print("Found references. Verify these are consistent with your change.", file=sys.stderr)
+    print("Audit any hardcoded usages or consider whether they are unrelated.", file=sys.stderr)
+    return 2
+if __name__ == "__main__":
+    sys.exit(main())
+"""
+
+_NO_STDERR_SCRIPT = """\
+import json, sys
+def main():
+    return 0
+if __name__ == "__main__":
+    sys.exit(main())
+"""
+
+EXPECTED_HOOK = {
+    "form": "command-hook",
+    "event": "PostToolUse",
+    "matcher_must_include": ["Edit"],
+    "rationale_must_mention": ["export"],
+}
+
+
+def test_imperative_stderr_passes_on_action_forcing_voice():
+    proposal = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Edit|MultiEdit",
+        "script": _IMPERATIVE_SCRIPT,
+        "script_lang": "python",
+        "rationale": "Surfaces callers after an export edit.",
+        "sentinel_name": "self-improving-claude/grep-callers",
+    }
+    result = grade_code(proposal, EXPECTED_HOOK)
+    assert result["checks"]["imperative_stderr"] == 10
+
+
+def test_imperative_stderr_fails_on_passive_voice():
+    proposal = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Edit|MultiEdit",
+        "script": _PASSIVE_SCRIPT,
+        "script_lang": "python",
+        "rationale": "Surfaces callers after an export edit.",
+        "sentinel_name": "self-improving-claude/grep-callers",
+    }
+    result = grade_code(proposal, EXPECTED_HOOK)
+    assert result["checks"]["imperative_stderr"] == 0
+
+
+def test_imperative_stderr_na_when_no_stderr_emitted():
+    """Hooks that don't write to stderr (pure block-or-allow, no message) get full marks."""
+    proposal = {
+        "form": "command-hook",
+        "event": "PreToolUse",
+        "matcher": "Bash",
+        "script": _NO_STDERR_SCRIPT,
+        "script_lang": "python",
+        "rationale": "Block without explanation.",
+        "sentinel_name": "self-improving-claude/silent-block",
+    }
+    result = grade_code(proposal, {"form": "command-hook", "event": "PreToolUse", "matcher": "Bash"})
+    assert result["checks"]["imperative_stderr"] == 10
+
+
+def test_imperative_stderr_na_for_permissions_forms():
+    """permissions.deny / permissions.ask have no script, hence no stderr — n/a."""
+    proposal = {"form": "permissions.ask", "rule": "Bash(git push:*)", "rationale": "Ask before push"}
+    result = grade_code(proposal, {"form": "permissions.ask", "rule_pattern_must_contain": "git push"})
+    assert result["checks"]["imperative_stderr"] == 10
+
+
+def test_imperative_stderr_fails_on_partial_passive():
+    """Even one banned phrase amid required ones fails — banned takes precedence."""
+    proposal = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Edit",
+        "script": """\
+import sys
+print("REQUIRED FOLLOW-UP: Fix each.", file=sys.stderr)
+print("Or verify the reference is unrelated.", file=sys.stderr)
+""",
+        "script_lang": "python",
+        "rationale": "x",
+        "sentinel_name": "self-improving-claude/x",
+    }
+    result = grade_code(proposal, EXPECTED_HOOK)
+    # Has REQUIRED FOLLOW-UP but ALSO has "verify ... is unrelated" (escape hatch)
+    assert result["checks"]["imperative_stderr"] == 0
+
+
+def test_imperative_stderr_requires_at_least_one_action_phrase():
+    """Stderr that's neutral (neither banned nor required) gets 0 — no force."""
+    proposal = {
+        "form": "command-hook",
+        "event": "PostToolUse",
+        "matcher": "Edit",
+        "script": """\
+import sys
+print("Done.", file=sys.stderr)
+print("Result: N references found.", file=sys.stderr)
+""",
+        "script_lang": "python",
+        "rationale": "x",
+        "sentinel_name": "self-improving-claude/x",
+    }
+    result = grade_code(proposal, EXPECTED_HOOK)
+    assert result["checks"]["imperative_stderr"] == 0
