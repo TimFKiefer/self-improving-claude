@@ -55,14 +55,14 @@ def _extract_json(text: str) -> str:
     return text
 
 
-def grade_model(*, proposal: dict, planted_problem: str, client) -> dict:
+def grade_model(*, proposal: dict, planted_problem: str, client, judge_model: str = GRADER_MODEL) -> dict:
     """Grade one proposal. Returns {strengths, weaknesses, reasoning, score, ...}."""
     user_msg = GRADER_TEMPLATE.format(
         planted_problem=planted_problem,
         proposal_json=json.dumps(proposal, indent=2),
     )
     response = client.messages.create(
-        model=GRADER_MODEL,
+        model=judge_model,
         max_tokens=2048,
         system=GRADER_SYSTEM,
         messages=[{"role": "user", "content": user_msg}],

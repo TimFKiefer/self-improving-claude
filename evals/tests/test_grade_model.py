@@ -145,3 +145,21 @@ def test_grade_model_requests_higher_token_floor():
     c = _FakeClientV34('{"score":5}')
     grade_model(proposal={"form": "x"}, planted_problem="p", client=c)
     assert c.last_kwargs["max_tokens"] >= 2048
+
+
+# --- capability benchmark: judge_model override + batched judge ---
+
+from evals.grade_model import GRADER_MODEL
+
+
+def test_grade_model_uses_judge_model_override():
+    c = _FakeClientV34('{"strengths":[],"weaknesses":[],"reasoning":"x","score":7}')
+    grade_model(proposal={"form": "x"}, planted_problem="p", client=c,
+                judge_model="claude-sonnet-4-5")
+    assert c.last_kwargs["model"] == "claude-sonnet-4-5"
+
+
+def test_grade_model_defaults_to_grader_model():
+    c = _FakeClientV34('{"strengths":[],"weaknesses":[],"reasoning":"x","score":7}')
+    grade_model(proposal={"form": "x"}, planted_problem="p", client=c)
+    assert c.last_kwargs["model"] == GRADER_MODEL
