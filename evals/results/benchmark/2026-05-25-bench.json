@@ -1,8 +1,18 @@
 {
-  "date": "2026-05-25T11:22:15Z",
+  "date": "2026-05-25T13:44:05Z",
   "judge": "claude-cli:claude-sonnet-4-5",
   "samples_per_cell": 4,
   "independent": false,
+  "leaderboard_fixtures": [
+    "001-pnpm-test-watcher",
+    "002-block-env-reads",
+    "003-prisma-generated-protection",
+    "004-recursion-prevention",
+    "005-format-on-write",
+    "006-rename-callers",
+    "007-git-push-warn"
+  ],
+  "note": "gemma/haiku/sonnet scored on 001-007; opus also has 008-010 (opus-only so far). Leaderboard computed over the 7 shared fixtures for fairness.",
   "cells": [
     {
       "mean": 9.0,
@@ -318,6 +328,156 @@
       ],
       "model": "ollama:gemma4:e4b",
       "fixture": "007-git-push-warn"
+    },
+    {
+      "mean": 10.0,
+      "std": 0.0,
+      "stderr": 0.0,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "model": "claude-cli:opus",
+      "fixture": "001-pnpm-test-watcher"
+    },
+    {
+      "mean": 5.0,
+      "std": 0.0,
+      "stderr": 0.0,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        5.0,
+        5.0,
+        5.0,
+        5.0
+      ],
+      "model": "claude-cli:opus",
+      "fixture": "002-block-env-reads"
+    },
+    {
+      "mean": 5.0,
+      "std": 0.0,
+      "stderr": 0.0,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        5.0,
+        5.0,
+        5.0,
+        5.0
+      ],
+      "model": "claude-cli:opus",
+      "fixture": "003-prisma-generated-protection"
+    },
+    {
+      "mean": 9.0,
+      "std": 0.0,
+      "stderr": 0.0,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        9.0,
+        9.0,
+        9.0,
+        9.0
+      ],
+      "model": "claude-cli:opus",
+      "fixture": "004-recursion-prevention"
+    },
+    {
+      "mean": 9.75,
+      "std": 0.5,
+      "stderr": 0.25,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        9.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "model": "claude-cli:opus",
+      "fixture": "005-format-on-write"
+    },
+    {
+      "mean": 8.5,
+      "std": 0.577,
+      "stderr": 0.289,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        8.0,
+        9.0,
+        9.0,
+        8.0
+      ],
+      "model": "claude-cli:opus",
+      "fixture": "006-rename-callers"
+    },
+    {
+      "mean": 10.0,
+      "std": 0.0,
+      "stderr": 0.0,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "model": "claude-cli:opus",
+      "fixture": "007-git-push-warn"
+    },
+    {
+      "mean": 10.0,
+      "std": 0.0,
+      "stderr": 0.0,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "model": "claude-cli:opus",
+      "fixture": "008-secret-in-source"
+    },
+    {
+      "mean": 7.75,
+      "std": 4.5,
+      "stderr": 2.25,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        10.0,
+        1.0,
+        10.0
+      ],
+      "model": "claude-cli:opus",
+      "fixture": "009-commit-message-style"
+    },
+    {
+      "mean": 10.0,
+      "std": 0.0,
+      "stderr": 0.0,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "model": "claude-cli:opus",
+      "fixture": "010-block-staging-fetch"
     }
   ],
   "leaderboard": [
@@ -325,6 +485,13 @@
       "model": "claude-cli:claude-sonnet-4-5",
       "mean_quality": 8.214,
       "stderr": 0.691,
+      "fixtures_scored": 7,
+      "avg_valid_rate": 1.0
+    },
+    {
+      "model": "claude-cli:opus",
+      "mean_quality": 8.179,
+      "stderr": 0.846,
       "fixtures_scored": 7,
       "avg_valid_rate": 1.0
     },
