@@ -1,0 +1,346 @@
+{
+  "date": "2026-05-25T11:22:15Z",
+  "judge": "claude-cli:claude-sonnet-4-5",
+  "samples_per_cell": 4,
+  "independent": false,
+  "cells": [
+    {
+      "mean": 9.0,
+      "std": 0.816,
+      "stderr": 0.408,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        9.0,
+        8.0,
+        9.0
+      ],
+      "model": "claude-cli:haiku",
+      "fixture": "001-pnpm-test-watcher"
+    },
+    {
+      "mean": 8.25,
+      "std": 3.5,
+      "stderr": 1.75,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        10.0,
+        10.0,
+        3.0
+      ],
+      "model": "claude-cli:haiku",
+      "fixture": "002-block-env-reads"
+    },
+    {
+      "mean": 5.5,
+      "std": 1.0,
+      "stderr": 0.5,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        5.0,
+        7.0,
+        5.0,
+        5.0
+      ],
+      "model": "claude-cli:haiku",
+      "fixture": "003-prisma-generated-protection"
+    },
+    {
+      "mean": 7.0,
+      "std": 1.826,
+      "stderr": 0.913,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        8.0,
+        9.0,
+        6.0,
+        5.0
+      ],
+      "model": "claude-cli:haiku",
+      "fixture": "004-recursion-prevention"
+    },
+    {
+      "mean": 7.25,
+      "std": 1.5,
+      "stderr": 0.75,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        8.0,
+        8.0,
+        5.0,
+        8.0
+      ],
+      "model": "claude-cli:haiku",
+      "fixture": "005-format-on-write"
+    },
+    {
+      "mean": 7.25,
+      "std": 1.258,
+      "stderr": 0.629,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        9.0,
+        6.0,
+        7.0,
+        7.0
+      ],
+      "model": "claude-cli:haiku",
+      "fixture": "006-rename-callers"
+    },
+    {
+      "mean": 10.0,
+      "std": 0.0,
+      "stderr": 0.0,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "model": "claude-cli:haiku",
+      "fixture": "007-git-push-warn"
+    },
+    {
+      "mean": 10.0,
+      "std": 0.0,
+      "stderr": 0.0,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "model": "claude-cli:claude-sonnet-4-5",
+      "fixture": "001-pnpm-test-watcher"
+    },
+    {
+      "mean": 6.25,
+      "std": 2.5,
+      "stderr": 1.25,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        5.0,
+        5.0,
+        5.0,
+        10.0
+      ],
+      "model": "claude-cli:claude-sonnet-4-5",
+      "fixture": "002-block-env-reads"
+    },
+    {
+      "mean": 5.75,
+      "std": 0.957,
+      "stderr": 0.479,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        5.0,
+        6.0,
+        7.0,
+        5.0
+      ],
+      "model": "claude-cli:claude-sonnet-4-5",
+      "fixture": "003-prisma-generated-protection"
+    },
+    {
+      "mean": 8.0,
+      "std": 2.0,
+      "stderr": 1.0,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        9.0,
+        5.0,
+        9.0,
+        9.0
+      ],
+      "model": "claude-cli:claude-sonnet-4-5",
+      "fixture": "004-recursion-prevention"
+    },
+    {
+      "mean": 7.5,
+      "std": 2.887,
+      "stderr": 1.443,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        10.0,
+        5.0,
+        5.0
+      ],
+      "model": "claude-cli:claude-sonnet-4-5",
+      "fixture": "005-format-on-write"
+    },
+    {
+      "mean": 10.0,
+      "std": 0.0,
+      "stderr": 0.0,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "model": "claude-cli:claude-sonnet-4-5",
+      "fixture": "006-rename-callers"
+    },
+    {
+      "mean": 10.0,
+      "std": 0.0,
+      "stderr": 0.0,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "model": "claude-cli:claude-sonnet-4-5",
+      "fixture": "007-git-push-warn"
+    },
+    {
+      "mean": 10.0,
+      "std": 0.0,
+      "stderr": 0.0,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "model": "ollama:gemma4:e4b",
+      "fixture": "001-pnpm-test-watcher"
+    },
+    {
+      "mean": 7.75,
+      "std": 2.63,
+      "stderr": 1.315,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        10.0,
+        6.0,
+        5.0,
+        10.0
+      ],
+      "model": "ollama:gemma4:e4b",
+      "fixture": "002-block-env-reads"
+    },
+    {
+      "mean": 4.5,
+      "std": 1.0,
+      "stderr": 0.5,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        5.0,
+        3.0,
+        5.0,
+        5.0
+      ],
+      "model": "ollama:gemma4:e4b",
+      "fixture": "003-prisma-generated-protection"
+    },
+    {
+      "mean": 2.0,
+      "std": 4.0,
+      "stderr": 2.0,
+      "valid_rate": 0.25,
+      "n": 4,
+      "per_sample_quality": [
+        0.0,
+        0.0,
+        8.0,
+        0.0
+      ],
+      "model": "ollama:gemma4:e4b",
+      "fixture": "004-recursion-prevention"
+    },
+    {
+      "mean": 3.5,
+      "std": 4.123,
+      "stderr": 2.062,
+      "valid_rate": 0.5,
+      "n": 4,
+      "per_sample_quality": [
+        6.0,
+        0.0,
+        0.0,
+        8.0
+      ],
+      "model": "ollama:gemma4:e4b",
+      "fixture": "005-format-on-write"
+    },
+    {
+      "mean": 2.25,
+      "std": 4.5,
+      "stderr": 2.25,
+      "valid_rate": 0.25,
+      "n": 4,
+      "per_sample_quality": [
+        0.0,
+        0.0,
+        9.0,
+        0.0
+      ],
+      "model": "ollama:gemma4:e4b",
+      "fixture": "006-rename-callers"
+    },
+    {
+      "mean": 6.75,
+      "std": 2.217,
+      "stderr": 1.109,
+      "valid_rate": 1.0,
+      "n": 4,
+      "per_sample_quality": [
+        6.0,
+        5.0,
+        6.0,
+        10.0
+      ],
+      "model": "ollama:gemma4:e4b",
+      "fixture": "007-git-push-warn"
+    }
+  ],
+  "leaderboard": [
+    {
+      "model": "claude-cli:claude-sonnet-4-5",
+      "mean_quality": 8.214,
+      "stderr": 0.691,
+      "fixtures_scored": 7,
+      "avg_valid_rate": 1.0
+    },
+    {
+      "model": "claude-cli:haiku",
+      "mean_quality": 7.75,
+      "stderr": 0.556,
+      "fixtures_scored": 7,
+      "avg_valid_rate": 1.0
+    },
+    {
+      "model": "ollama:gemma4:e4b",
+      "mean_quality": 5.25,
+      "stderr": 1.137,
+      "fixtures_scored": 7,
+      "avg_valid_rate": 0.714
+    }
+  ]
+}
