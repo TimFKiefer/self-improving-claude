@@ -1,5 +1,5 @@
 {
   "form": "permissions.deny",
-  "rule_pattern": "Read(**/.env)",
+  "rule_pattern": "Read(**/.env*)",
   "rationale_must_mention": [".env"]
 }

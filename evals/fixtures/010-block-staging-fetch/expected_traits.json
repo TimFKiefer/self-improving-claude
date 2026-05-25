@@ -1,0 +1,5 @@
+{
+  "form": "permissions.deny",
+  "rule_pattern_must_contain": "WebFetch",
+  "rationale_must_mention": ["fetch"]
+}

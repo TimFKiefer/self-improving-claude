@@ -1,0 +1,4 @@
+{
+  "form": "claude-md-note",
+  "rationale_must_mention": ["commit"]
+}

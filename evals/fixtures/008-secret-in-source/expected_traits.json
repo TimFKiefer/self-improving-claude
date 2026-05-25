@@ -1,0 +1,6 @@
+{
+  "form": "command-hook",
+  "event": "PreToolUse",
+  "matcher_must_include": ["Write", "Edit"],
+  "rationale_must_mention": ["secret"]
+}

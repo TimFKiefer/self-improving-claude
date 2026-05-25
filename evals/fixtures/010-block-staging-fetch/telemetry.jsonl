@@ -1,0 +1,3 @@
+{"ts":"2026-05-22T09:12:03Z","tool":"WebFetch","args_summary":"https://staging-api.internal/v1/orders"}
+{"ts":"2026-05-22T09:14:41Z","tool":"WebFetch","args_summary":"https://staging-api.internal/v1/users/42"}
+{"ts":"2026-05-23T11:05:18Z","tool":"WebFetch","args_summary":"https://staging-api.internal/v1/orders?reset=1"}
