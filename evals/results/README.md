@@ -1,5 +1,22 @@
 # Eval Baseline Results — Reference
 
+## 🏁 Capability Benchmark — Leaderboard
+
+> **Updated 2026-05-25** · judge: Sonnet 4.5 · N=4 samples/cell · 7 shared fixtures · source: [`benchmark/2026-05-25-bench.json`](benchmark/2026-05-25-bench.json)
+
+| Rank | Model (proposer) | Mean quality | valid |
+|---:|---|---:|---:|
+| 1 | Sonnet 4.5 | **8.21** ± 0.69 | 100% |
+| 2 | Opus 4.7 | **8.18** ± 0.85 | 100% |
+| 3 | Haiku 4.5 | **7.75** ± 0.56 | 100% |
+| 4 | gemma4:e4b (local) | **5.25** ± 1.14 | 71% |
+
+**Verdict:** the three frontier models are a **statistical tie** — Sonnet, Opus, and Haiku all sit inside each other's ± noise bands, so none is measurably better at hook authoring here (**Opus is *not* ahead**). gemma trails, and its 71% valid-rate shows it often fails to emit a parseable proposal on the reasoning-heavy fixtures.
+
+*This is the **capability** instrument (`python3 -m evals.benchmark`) — it scores hook **quality** vs the planted problem with a fixed LLM judge. It is **not** the conformance tripwire below (which is exact-match to a gold and can't rank models). N=4 over 7 fixtures with a single judge is **directional, not definitive**; see [the capability-benchmark section](#capability-benchmark-python3--m-evalsbenchmark) for the full caveats. Opus also scored the new fixtures 008–010 (opus-only so far).*
+
+---
+
 This directory holds the scored baselines from running `python3 -m evals.run` (or the one-shot CLI helper `/tmp/eval_via_cli.py`) against various LLM backends. Each `*.json` file in this directory is one full pass over the dataset (`../dataset.json`).
 
 This README explains **what the eval measures, what each number means, and what each fixture tests** so you can read the baselines without re-tracing the code.
