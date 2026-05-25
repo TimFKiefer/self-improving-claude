@@ -46,6 +46,28 @@ Backends are built from `"backend:model"` specs by `clients.py:make_client` —
 `claude-cli:opus`, `anthropic:<model-id>`. The benchmark pins its judge (default
 `claude-cli:claude-sonnet-4-5`) while the proposer model varies.
 
+### ⭐ REQUIRED configuration for the canonical capability run
+
+> **The 2026-05-25 baseline did NOT use this config** — it ran via `claude --print`
+> with **no extended thinking and default effort**, so Sonnet/Opus answered in fast
+> single-pass mode and their reasoning advantage was never engaged (which is why the
+> three frontier models came out tied). **Every future canonical benchmark run MUST
+> use the config below** so the models are measured at their ceiling, not throttled.
+
+- **Proposers Sonnet + Opus: extended thinking ON.** (Haiku/gemma as available.)
+- **Judge = Opus WITH extended thinking** (not the cheap Sonnet judge) — the most
+  capable judge for the most discriminating scoring.
+- **Effort = MAX everywhere** (proposers and judge) — maximum thinking budget /
+  highest reasoning-effort setting the API exposes.
+
+**Implementation prerequisite (not yet built):** `claude --print` (the `claude-cli`
+backend) does **not** expose a thinking budget or effort level, so this config CANNOT
+run on the current backend as-is. It requires either (a) the `anthropic` SDK backend
+extended to pass `thinking={"type":"enabled","budget_tokens": <max>}` (+ the effort
+parameter if available), or (b) a `claude` CLI mode that exposes thinking/effort. Build
+that backend support first; until then, runs are "effort-off" and only directional for
+frontier-model comparison. Track as a v0.4 benchmark item.
+
 ---
 
 ## The dataset (10 fixtures)
