@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 DEFAULT_MODEL = os.environ.get("CLAUDE_CLI_MODEL", "haiku")
 DEFAULT_TIMEOUT = float(os.environ.get("CLAUDE_CLI_TIMEOUT", "600"))
+DEFAULT_EFFORT = os.environ.get("CLAUDE_CLI_EFFORT") or None  # low|medium|high|xhigh|max
 
 # Map Anthropic model IDs (what grade_model / run pass) to `claude --print` aliases.
 # Unknown values pass through unchanged (a CLI alias like "opus" is already valid).
@@ -36,9 +37,11 @@ def _to_cli_model(model: str) -> str:
 class ClaudeCliClient:
     """Drop-in for `anthropic.Anthropic` using the `claude --print` CLI."""
 
-    def __init__(self, model: str = DEFAULT_MODEL, timeout: float = DEFAULT_TIMEOUT):
+    def __init__(self, model: str = DEFAULT_MODEL, timeout: float = DEFAULT_TIMEOUT,
+                 effort: str | None = DEFAULT_EFFORT):
         self.cli_model = model
         self.timeout = timeout
+        self.effort = effort  # low|medium|high|xhigh|max; appended to claude --print
         # mirror anthropic.Anthropic's surface: client.messages.create(**kwargs)
         self.messages = SimpleNamespace(create=self._create)
 
@@ -62,16 +65,19 @@ class ClaudeCliClient:
         while the proposer varies. `max_tokens` has no CLI equivalent (ignored)."""
         cli_model = _to_cli_model(model) if model else self.cli_model
         prompt = self._build_prompt(system, messages)
+        argv = [
+            "claude", "--print",
+            "--model", cli_model,
+            "--disable-slash-commands",
+            "--no-session-persistence",
+            "--exclude-dynamic-system-prompt-sections",
+        ]
+        if self.effort:
+            argv += ["--effort", self.effort]
+        argv.append(prompt)
         try:
             result = subprocess.run(
-                [
-                    "claude", "--print",
-                    "--model", cli_model,
-                    "--disable-slash-commands",
-                    "--no-session-persistence",
-                    "--exclude-dynamic-system-prompt-sections",
-                    prompt,
-                ],
+                argv,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,

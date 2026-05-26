@@ -129,3 +129,12 @@ def test_parse_echo_ignores_braces_in_prose():
     text = 'I considered {a few} options.\n{"proposals":[{"form":"permissions.deny","rule":"Read(.env*)"}]}'
     props, valid = _parse_echo(text)
     assert valid is True and props[0]["rule"] == "Read(.env*)"
+
+
+def test_build_argv_includes_effort_when_set():
+    argv = _build_argv(model="haiku", command="/improve-init",
+                       plugin_path=Path("/p"), override="o", effort="max")
+    assert argv[argv.index("--effort") + 1] == "max"
+    assert argv[-1] == "/improve-init"                       # command stays last
+    argv2 = _build_argv(model="haiku", command="/improve-init", plugin_path=Path("/p"), override="o")
+    assert "--effort" not in argv2                           # default: no effort flag

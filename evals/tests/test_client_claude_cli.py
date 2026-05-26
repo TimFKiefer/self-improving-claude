@@ -95,3 +95,22 @@ def test_create_raises_when_cli_missing():
             client.messages.create(model="x", max_tokens=10,
                                    messages=[{"role": "user", "content": "x"}])
     assert "not found" in str(ei.value).lower()
+
+
+def test_create_includes_effort_when_set():
+    fake = _fake_run_factory("ok")
+    client = ClaudeCliClient(model="haiku", effort="max")
+    with patch("evals.client_claude_cli.subprocess.run", new=fake):
+        client.messages.create(model="x", max_tokens=10,
+                               messages=[{"role": "user", "content": "x"}])
+    cmd = fake.captured["cmd"]
+    assert cmd[cmd.index("--effort") + 1] == "max"
+
+
+def test_create_omits_effort_by_default():
+    fake = _fake_run_factory("ok")
+    client = ClaudeCliClient(model="haiku")   # no effort
+    with patch("evals.client_claude_cli.subprocess.run", new=fake):
+        client.messages.create(model="x", max_tokens=10,
+                               messages=[{"role": "user", "content": "x"}])
+    assert "--effort" not in fake.captured["cmd"]

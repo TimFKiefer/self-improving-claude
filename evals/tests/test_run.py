@@ -343,3 +343,13 @@ def test_run_one_entry_sandbox_forwards_judge_model(monkeypatch):
              "expected_hook_traits": {"form": "permissions.deny"}, "planted_problem": "p"}
     run_mod.run_one_entry_sandbox(entry, model="haiku", grader_client=None, judge_model="opus")
     assert captured["judge_model"] == "opus"
+
+
+def test_run_one_entry_sandbox_forwards_effort(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(run_mod, "run_in_sandbox",
+        lambda **k: captured.update(k) or _sb_result([]))
+    monkeypatch.setattr(run_mod, "load_fixture", lambda _id: object())
+    entry = {"id": "011-x", "trigger": "improve-init", "expect_no_proposal": True}
+    run_mod.run_one_entry_sandbox(entry, model="haiku", grader_client=None, effort="max")
+    assert captured["effort"] == "max"

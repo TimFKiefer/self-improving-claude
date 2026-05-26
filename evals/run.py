@@ -245,7 +245,7 @@ def _aggregate_sandbox(results: list[dict]) -> dict:
 
 
 def run_one_entry_sandbox(entry: dict, *, model: str, grader_client,
-                          judge_model: str = GRADER_MODEL) -> dict:
+                          judge_model: str = GRADER_MODEL, effort: str | None = None) -> dict:
     """Run one dataset entry through the REAL slash command in a sandbox, then grade.
 
     Restraint fixtures (expect_no_proposal) are scored binary on emptiness; positive
@@ -253,7 +253,7 @@ def run_one_entry_sandbox(entry: dict, *, model: str, grader_client,
     proposals, plus a per-proposal install_ok integrity flag.
     """
     fx = load_fixture(entry["id"])
-    sb = run_in_sandbox(entry=entry, fixture=fx, model=model, plugin_path=SANDBOX_PLUGIN_PATH)
+    sb = run_in_sandbox(entry=entry, fixture=fx, model=model, plugin_path=SANDBOX_PLUGIN_PATH, effort=effort)
     if entry.get("expect_no_proposal"):
         wrote_nothing = (not sb["written"]["hook_files"]
                          and not sb["written"]["permission_rules"])
@@ -347,7 +347,8 @@ def _main_sandbox(args) -> int:
     from evals.client_claude_cli import ClaudeCliClient
     model = os.environ.get("SANDBOX_MODEL", "haiku")
     judge = os.environ.get("SANDBOX_JUDGE", "haiku")
-    grader_client = ClaudeCliClient()  # client for grading; judge model is set per-call
+    effort = os.environ.get("SANDBOX_EFFORT") or None  # low|medium|high|xhigh|max
+    grader_client = ClaudeCliClient(effort=effort)  # judge model set per-call; effort applies
 
     entries = load_dataset()
     if getattr(args, "entry", None):
@@ -355,23 +356,24 @@ def _main_sandbox(args) -> int:
         if not entries:
             print(f"No entry with id={args.entry}", file=sys.stderr)
             return 2
-    print(f"Sandbox eval — proposer={model}, judge={judge}, {len(entries)} entries", file=sys.stderr)
+    print(f"Sandbox eval — proposer={model}, judge={judge}, effort={effort or 'default'}, {len(entries)} entries", file=sys.stderr)
 
     results = []
     for entry in entries:
         print(f"  /{'improve' if entry['trigger'] == 'improve' else 'improve-init'} x {entry['id']} ...",
               file=sys.stderr)
-        results.append(run_one_entry_sandbox(entry, model=model, grader_client=grader_client, judge_model=judge))
+        results.append(run_one_entry_sandbox(entry, model=model, grader_client=grader_client, judge_model=judge, effort=effort))
 
     agg = _aggregate_sandbox(results)
     output = {
         "date": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "mode": "sandbox", "proposer": model, "judge": judge,
+        "mode": "sandbox", "proposer": model, "judge": judge, "effort": effort or "default",
         "results": results, "summary": agg,
     }
     results_dir = EVALS_DIR / "results"
     results_dir.mkdir(exist_ok=True)
-    out_path = results_dir / f"{dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d')}-v0.4.0-sandbox-{model}.json"
+    suffix = f"-effort-{effort}" if effort else ""
+    out_path = results_dir / f"{dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d')}-v0.4.0-sandbox-{model}{suffix}.json"
     out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
     print(f"\nResults written to {out_path}")
     ac, am = agg["average_code"], agg["average_model"]

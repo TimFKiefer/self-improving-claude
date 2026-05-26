@@ -61,8 +61,8 @@ def _build_sandbox(tmp: Path, fixture: Fixture) -> None:
 
 
 def _build_argv(*, model: str, command: str, plugin_path: Path, override: str,
-                max_budget_usd: float = 2.0) -> list[str]:
-    return [
+                max_budget_usd: float = 2.0, effort: str | None = None) -> list[str]:
+    argv = [
         "claude", "--print",
         "--model", _to_cli_model(model),
         "--plugin-dir", str(plugin_path),
@@ -70,9 +70,11 @@ def _build_argv(*, model: str, command: str, plugin_path: Path, override: str,
         "--output-format", "json",
         "--no-session-persistence",
         "--max-budget-usd", str(max_budget_usd),
-        "--append-system-prompt", override,
-        command,
     ]
+    if effort:  # low|medium|high|xhigh|max — proposer reasoning ceiling
+        argv += ["--effort", effort]
+    argv += ["--append-system-prompt", override, command]
+    return argv
 
 
 _FENCE_OPEN_RE = re.compile(r"^```(?:json|JSON)?\s*\n?")
@@ -137,7 +139,7 @@ def _read_written(tmp: Path) -> dict:
 
 
 def run_in_sandbox(*, entry: dict, fixture: Fixture, model: str,
-                   plugin_path: Path, timeout: float = 600) -> dict:
+                   plugin_path: Path, timeout: float = 600, effort: str | None = None) -> dict:
     """Drive the real slash command headlessly for one (fixture x model).
 
     Returns {echo, echo_valid, written, raw_result, returncode, error}. Always
@@ -151,7 +153,7 @@ def run_in_sandbox(*, entry: dict, fixture: Fixture, model: str,
     tmp = Path(tempfile.mkdtemp(prefix="sic-eval-"))
     try:
         _build_sandbox(tmp, fixture)
-        argv = _build_argv(model=model, command=command, plugin_path=plugin_path, override=override)
+        argv = _build_argv(model=model, command=command, plugin_path=plugin_path, override=override, effort=effort)
         try:
             proc = subprocess.run(argv, cwd=str(tmp), capture_output=True, text=True, timeout=timeout)
         except FileNotFoundError as e:
