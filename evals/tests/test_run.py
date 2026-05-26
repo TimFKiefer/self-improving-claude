@@ -238,3 +238,50 @@ def test_aggregate_sandbox_separates_restraint_and_install_rate():
     assert agg["install_rate"] == 0.5
     assert agg["average_restraint"] == 10.0
     assert len(agg["entries"]) == 2 and len(agg["restraint_entries"]) == 1
+
+
+class _FakeGrader:
+    def __init__(self):
+        self.messages = type("M", (), {"create": lambda *a, **k: None})()
+
+
+def _sb_result(echo, written=None):
+    return {"echo": echo, "echo_valid": True,
+            "written": written or {"settings_parses": True, "permission_rules": [], "hook_files": [], "settings": {}},
+            "raw_result": "", "returncode": 0, "error": None}
+
+
+def test_run_one_entry_sandbox_restraint_pass(monkeypatch):
+    monkeypatch.setattr(run_mod, "run_in_sandbox",
+        lambda **k: _sb_result([], {"settings_parses": True, "permission_rules": [], "hook_files": [], "settings": {}}))
+    monkeypatch.setattr(run_mod, "load_fixture", lambda _id: object())
+    entry = {"id": "011-x", "trigger": "improve-init", "expect_no_proposal": True}
+    out = run_mod.run_one_entry_sandbox(entry, model="haiku", grader_client=_FakeGrader())
+    assert out["expect_no_proposal"] is True and out["restraint"] == 10
+
+
+def test_run_one_entry_sandbox_restraint_fail_when_proposes(monkeypatch):
+    monkeypatch.setattr(run_mod, "run_in_sandbox",
+        lambda **k: _sb_result([{"form": "permissions.deny", "rule": "Read(**/.env*)"}],
+                               {"settings_parses": True, "permission_rules": ["Read(**/.env*)"], "hook_files": [], "settings": {}}))
+    monkeypatch.setattr(run_mod, "load_fixture", lambda _id: object())
+    entry = {"id": "011-x", "trigger": "improve-init", "expect_no_proposal": True}
+    out = run_mod.run_one_entry_sandbox(entry, model="haiku", grader_client=_FakeGrader())
+    assert out["restraint"] == 0
+
+
+def test_run_one_entry_sandbox_positive_grades(monkeypatch):
+    monkeypatch.setattr(run_mod, "run_in_sandbox",
+        lambda **k: _sb_result([{"form": "permissions.deny", "rule": "Read(**/.env*)", "rationale": "block .env"}],
+                               {"settings_parses": True, "permission_rules": ["Read(**/.env*)"], "hook_files": [], "settings": {}}))
+    monkeypatch.setattr(run_mod, "load_fixture", lambda _id: object())
+    monkeypatch.setattr(run_mod, "grade_model",
+        lambda **k: {"valid": True, "score": 8, "error": None})
+    entry = {"id": "002-x", "trigger": "improve-init",
+             "expected_hook_traits": {"form": "permissions.deny", "rule_pattern": "Read(**/.env*)",
+                                      "rationale_must_mention": [".env"]},
+             "planted_problem": "block .env"}
+    out = run_mod.run_one_entry_sandbox(entry, model="haiku", grader_client=_FakeGrader())
+    assert out["code_grades"][0]["mean"] == 10.0
+    assert out["model_grades"][0]["score"] == 8
+    assert out["installed"][0] is True

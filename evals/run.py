@@ -242,6 +242,34 @@ def _aggregate_sandbox(results: list[dict]) -> dict:
     }
 
 
+def run_one_entry_sandbox(entry: dict, *, model: str, grader_client) -> dict:
+    """Run one dataset entry through the REAL slash command in a sandbox, then grade.
+
+    Restraint fixtures (expect_no_proposal) are scored binary on emptiness; positive
+    fixtures are graded by the unchanged grade_code/grade_model on the echoed
+    proposals, plus a per-proposal install_ok integrity flag.
+    """
+    fx = load_fixture(entry["id"])
+    sb = run_in_sandbox(entry=entry, fixture=fx, model=model, plugin_path=SANDBOX_PLUGIN_PATH)
+    if entry.get("expect_no_proposal"):
+        wrote_nothing = (not sb["written"]["hook_files"]
+                         and not sb["written"]["permission_rules"])
+        return {
+            "id": entry["id"], "expect_no_proposal": True,
+            "restraint": 10 if (not sb["echo"] and wrote_nothing) else 0,
+            "echo": sb["echo"], "written": sb["written"], "error": sb["error"],
+        }
+    proposals = sb["echo"]
+    return {
+        "id": entry["id"], "trigger": entry["trigger"], "proposals": proposals,
+        "code_grades": [grade_code(p, entry["expected_hook_traits"]) for p in proposals],
+        "model_grades": [grade_model(proposal=p, planted_problem=entry["planted_problem"],
+                                     client=grader_client) for p in proposals],
+        "installed": [_installed_ok(p, sb["written"]) for p in proposals],
+        "written": sb["written"], "echo_valid": sb["echo_valid"], "error": sb["error"],
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--entry", help="run only one entry by id")
