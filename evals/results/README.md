@@ -359,3 +359,20 @@ Output: `evals/results/<date>-v0.4.0-sandbox-<model>.json`.
 5. **Not comparable to the v0.3.4 prompt-path numbers** — the instrument changed (real skill vs. proxy). This is a re-baseline, not a trend line.
 
 **Cost:** each cell is a full agentic procedure (multiple tool calls), materially pricier than the legacy single-prompt path. The Opus leg is quota-gated.
+
+### First baseline — 2026-05-26 (Opus judge)
+
+Files: `2026-05-26-v0.4.0-sandbox-{haiku,claude-sonnet-4-5,opus}.json`. Proposers run the real `/improve[-init]`; judge = Opus 4.7; N=1; default effort.
+
+| Proposer | avg code | avg model (Opus judge) | install_rate | restraint (011/012) |
+|---|---:|---:|---:|---:|
+| Haiku 4.5 | 6.7 | 5.1 | 100% | 0/10 |
+| Sonnet 4.5 (200k) | **8.1** | 5.9 | 54% | 0/10 |
+| Opus 4.7 | 5.6 | **7.1** | 67% | **10/10** |
+
+**Reading it (directional only):**
+- **Code vs. model invert for Opus.** Opus has the lowest deterministic code grade (5.6) yet the highest judge grade (7.1). It emitted *no gradeable proposal* on 3 positive fixtures (004 recursion, 007 git-push, 008 secret-in-source → 0/0), dragging its code mean; on the 7 it did answer, the judge rated it highest. Sonnet is the conformance leader (8.1) — most reliably hits the exact gold form.
+- **Only Opus exercised restraint (10/10)** — it correctly proposed nothing on the healthy-project (011) and one-off-bug (012) fixtures. Haiku and Sonnet both over-proposed (0/10); Haiku even fabricated a `pnpm test` guardrail on a clean project and emitted malformed `form` values (`"command"`/`"hook"`) there.
+- **install_rate** (did the echoed proposal land + parse on disk) varies independently of quality: Haiku 100%, Opus 67%, Sonnet 54%.
+
+**Heavy caveats:** N=1 (non-deterministic agentic runs); **Opus-judges-Opus self-preference** inflates the Opus model column; and every proposal was produced under the *forceful non-interactive override* (the bypassPermissions path) — the restraint results show this can coerce over-proposing in the smaller models. Read this as a first exercise of the real-skill harness, not a definitive ranking. A true "ceiling" run (per the benchmark-thinking-config preference) would add `--effort max`, now exposed by `claude --print` (≥ v2.1.150).
