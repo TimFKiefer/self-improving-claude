@@ -285,3 +285,18 @@ def test_run_one_entry_sandbox_positive_grades(monkeypatch):
     assert out["code_grades"][0]["mean"] == 10.0
     assert out["model_grades"][0]["score"] == 8
     assert out["installed"][0] is True
+
+
+def test_main_sandbox_mode_writes_per_model_results(monkeypatch, tmp_path):
+    monkeypatch.setenv("SANDBOX_MODEL", "haiku")
+    monkeypatch.setattr(run_mod, "load_dataset",
+        lambda: [{"id": "r", "trigger": "improve-init", "expect_no_proposal": True}])
+    monkeypatch.setattr(run_mod, "run_one_entry_sandbox",
+        lambda entry, **k: {"id": "r", "expect_no_proposal": True, "restraint": 10})
+    monkeypatch.setattr(run_mod, "EVALS_DIR", tmp_path)
+    rc = run_mod.main(["--sandbox"])
+    assert rc == 0
+    out = list((tmp_path / "results").glob("*-v0.4.0-sandbox-haiku.json"))
+    assert len(out) == 1
+    data = json.loads(out[0].read_text())
+    assert data["mode"] == "sandbox" and data["summary"]["average_restraint"] == 10.0

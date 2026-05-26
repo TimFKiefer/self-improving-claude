@@ -273,7 +273,12 @@ def run_one_entry_sandbox(entry: dict, *, model: str, grader_client) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--entry", help="run only one entry by id")
+    parser.add_argument("--sandbox", action="store_true",
+                        help="drive the REAL /improve command in a sandbox (Claude models only)")
     args = parser.parse_args(argv)
+
+    if args.sandbox:
+        return _main_sandbox(args)
 
     backend = os.environ.get("EVAL_BACKEND", "ollama").lower()
     if backend == "anthropic":
@@ -330,6 +335,42 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Average model score: {am:.1f}/10" if am is not None
           else "Average model score: n/a (no valid grades)")
     print(f"Average clean rate:  {agg['average_clean_rate']:.0%}")
+    return 0
+
+
+def _main_sandbox(args) -> int:
+    from evals.client_claude_cli import ClaudeCliClient
+    model = os.environ.get("SANDBOX_MODEL", "haiku")
+    grader_client = ClaudeCliClient()  # Haiku grader (grade_model pins GRADER_MODEL)
+
+    entries = load_dataset()
+    if getattr(args, "entry", None):
+        entries = [e for e in entries if e["id"] == args.entry]
+    print(f"Sandbox eval — proposer={model}, grader=haiku, {len(entries)} entries", file=sys.stderr)
+
+    results = []
+    for entry in entries:
+        print(f"  /{'improve' if entry['trigger'] == 'improve' else 'improve-init'} x {entry['id']} ...",
+              file=sys.stderr)
+        results.append(run_one_entry_sandbox(entry, model=model, grader_client=grader_client))
+
+    agg = _aggregate_sandbox(results)
+    output = {
+        "date": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "mode": "sandbox", "proposer": model, "grader": "haiku",
+        "results": results, "summary": agg,
+    }
+    results_dir = EVALS_DIR / "results"
+    results_dir.mkdir(exist_ok=True)
+    out_path = results_dir / f"{dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d')}-v0.4.0-sandbox-{model}.json"
+    out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
+    print(f"\nResults written to {out_path}")
+    ac, am = agg["average_code"], agg["average_model"]
+    print(f"Average code:    {ac:.1f}/10" if ac is not None else "Average code:    n/a")
+    print(f"Average model:   {am:.1f}/10" if am is not None else "Average model:   n/a")
+    ir, ar = agg["install_rate"], agg["average_restraint"]
+    print(f"Install rate:    {ir:.0%}" if ir is not None else "Install rate:    n/a")
+    print(f"Avg restraint:   {ar:.1f}/10" if ar is not None else "Avg restraint:   n/a")
     return 0
 
 
