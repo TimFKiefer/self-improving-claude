@@ -12,6 +12,7 @@ Spec: docs/superpowers/specs/2026-05-26-v0.4.0-real-skill-sandbox-eval-design.md
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from evals.client_claude_cli import _to_cli_model
@@ -69,3 +70,58 @@ def _build_argv(*, model: str, command: str, plugin_path: Path, override: str,
         "--append-system-prompt", override,
         command,
     ]
+
+
+_FENCE_OPEN_RE = re.compile(r"^```(?:json|JSON)?\s*\n?")
+_FENCE_CLOSE_RE = re.compile(r"\n?```\s*$")
+
+
+def _parse_echo(result_text: str) -> tuple[list[dict], bool]:
+    """Extract the proposal list from the skill's final message.
+
+    Returns (proposals, echo_valid). Tolerates ```json fences and a trailing JSON
+    object after prose. Empty list + False when nothing parses.
+    """
+    text = result_text.strip()
+    text = _FENCE_OPEN_RE.sub("", text)
+    text = _FENCE_CLOSE_RE.sub("", text)
+    candidates = [text]
+    m = re.search(r"\{.*\}\s*$", text, re.DOTALL)
+    if m:
+        candidates.insert(0, m.group(0))
+    for c in candidates:
+        try:
+            obj = json.loads(c)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and "proposals" in obj:
+            return (obj["proposals"] or [], True)
+        if isinstance(obj, list):
+            return (obj, True)
+    return ([], False)
+
+
+def _read_written(tmp: Path) -> dict:
+    """Read back what the skill installed in the sandbox's .claude/."""
+    settings_path = tmp / ".claude" / "settings.json"
+    settings_parses = False
+    settings: dict = {}
+    permission_rules: list[str] = []
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+            settings_parses = True
+        except json.JSONDecodeError:
+            settings_parses = False
+    if settings_parses:
+        perms = settings.get("permissions", {}) or {}
+        for key in ("deny", "ask"):
+            permission_rules.extend(perms.get(key, []) or [])
+    hooks_dir = tmp / ".claude" / "hooks"
+    hook_files = sorted(p.name for p in hooks_dir.glob("*")) if hooks_dir.exists() else []
+    return {
+        "settings_parses": settings_parses,
+        "settings": settings if settings_parses else {},
+        "hook_files": hook_files,
+        "permission_rules": permission_rules,
+    }
