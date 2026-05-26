@@ -124,7 +124,7 @@ def run_one_entry(entry: dict, *, client, proposer_model: str) -> dict:
     raw = resp.content[0].text
     proposals = parse_proposals(raw)
 
-    code_grades = [grade_code(p, entry["expected_hook_traits"]) for p in proposals]
+    code_grades = [grade_code(p, entry.get("expected_hook_traits", {})) for p in proposals]
     model_grades = [
         grade_model(proposal=p, planted_problem=entry["planted_problem"], client=client)
         for p in proposals
@@ -134,7 +134,7 @@ def run_one_entry(entry: dict, *, client, proposer_model: str) -> dict:
         "id": entry["id"],
         "trigger": entry["trigger"],
         "user_args": entry.get("user_args", ""),
-        "expected_hook_traits": entry["expected_hook_traits"],
+        "expected_hook_traits": entry.get("expected_hook_traits"),
         "proposals": proposals,
         "code_grades": code_grades,
         "model_grades": model_grades,
@@ -201,9 +201,11 @@ def _installed_ok(proposal: dict, written: dict) -> bool | None:
     if form in ("permissions.deny", "permissions.ask"):
         return (proposal.get("rule") or "") in (written.get("permission_rules") or [])
     if form == "command-hook":
-        return bool(written.get("hook_files")) and bool(written.get("settings", {}).get("hooks"))
+        slug = (proposal.get("sentinel_name") or "").split("/")[-1]
+        file_ok = bool(slug) and any(slug in hf for hf in written.get("hook_files", []))
+        return file_ok and bool(written.get("settings", {}).get("hooks"))
     if form == "prompt-hook":
-        return bool(written.get("settings", {}).get("hooks"))
+        return '"prompt"' in json.dumps(written.get("settings", {}).get("hooks", {}))
     return False
 
 
@@ -303,7 +305,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Unknown EVAL_BACKEND={backend!r} (expected: ollama|anthropic|claude-cli)", file=sys.stderr)
         return 2
 
-    entries = load_dataset()
+    # Restraint fixtures (expect_no_proposal) are sandbox-mode-only; the legacy
+    # prompt path can't score them and run_one_entry expects expected_hook_traits.
+    entries = [e for e in load_dataset() if not e.get("expect_no_proposal")]
     if args.entry:
         entries = [e for e in entries if e["id"] == args.entry]
         if not entries:
@@ -346,6 +350,9 @@ def _main_sandbox(args) -> int:
     entries = load_dataset()
     if getattr(args, "entry", None):
         entries = [e for e in entries if e["id"] == args.entry]
+        if not entries:
+            print(f"No entry with id={args.entry}", file=sys.stderr)
+            return 2
     print(f"Sandbox eval — proposer={model}, grader=haiku, {len(entries)} entries", file=sys.stderr)
 
     results = []

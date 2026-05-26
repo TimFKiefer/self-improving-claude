@@ -121,3 +121,11 @@ def test_run_in_sandbox_nonzero_returncode_sets_error(monkeypatch):
                             fixture=_fx(chat="USER: x\n"), model="haiku", plugin_path=Path("/p"))
     assert out["returncode"] == 1 and "boom" in out["error"]
     assert out["echo"] == [] and out["echo_valid"] is False
+
+
+def test_parse_echo_ignores_braces_in_prose():
+    # A stray brace in the prose before the real trailing object must not break parsing
+    # (regression: a greedy {.*} regex mis-spanned from the first brace).
+    text = 'I considered {a few} options.\n{"proposals":[{"form":"permissions.deny","rule":"Read(.env*)"}]}'
+    props, valid = _parse_echo(text)
+    assert valid is True and props[0]["rule"] == "Read(.env*)"

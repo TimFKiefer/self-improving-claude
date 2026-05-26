@@ -117,7 +117,9 @@ def run_cell(*, entry: dict, proposer_client, proposer_model: str,
 
 def run_benchmark(*, model_specs: list[str], judge_spec: str, samples: int,
                   fixture_id: str | None = None, independent: bool = False) -> dict:
-    entries = load_dataset()
+    # Restraint fixtures (expect_no_proposal) are sandbox-eval-only — exclude them
+    # so the capability leaderboard keeps scoring quality-vs-planted-problem.
+    entries = [e for e in load_dataset() if not e.get("expect_no_proposal")]
     if fixture_id:
         entries = [e for e in entries if e["id"] == fixture_id]
     judge_client, judge_model = make_client(judge_spec)

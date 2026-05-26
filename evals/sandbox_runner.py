@@ -88,13 +88,19 @@ def _parse_echo(result_text: str) -> tuple[list[dict], bool]:
     text = result_text.strip()
     text = _FENCE_OPEN_RE.sub("", text)
     text = _FENCE_CLOSE_RE.sub("", text)
-    candidates = [text]
-    m = re.search(r"\{.*\}\s*$", text, re.DOTALL)
-    if m:
-        candidates.insert(0, m.group(0))
-    for c in candidates:
+    decoder = json.JSONDecoder()
+    # Decode a JSON value at the start (clean case / bare list), then at each '{'.
+    # raw_decode ignores trailing data, so a {"proposals":...} object is recovered
+    # even after prose — and unlike a greedy `\{.*\}` regex it won't mis-span from a
+    # stray brace inside that prose.
+    starts = [0] + [i for i, ch in enumerate(text) if ch == "{"]
+    seen: set[int] = set()
+    for i in starts:
+        if i in seen:
+            continue
+        seen.add(i)
         try:
-            obj = json.loads(c)
+            obj, _ = decoder.raw_decode(text, i)
         except json.JSONDecodeError:
             continue
         if isinstance(obj, dict) and "proposals" in obj:

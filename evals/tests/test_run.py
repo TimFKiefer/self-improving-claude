@@ -300,3 +300,33 @@ def test_main_sandbox_mode_writes_per_model_results(monkeypatch, tmp_path):
     assert len(out) == 1
     data = json.loads(out[0].read_text())
     assert data["mode"] == "sandbox" and data["summary"]["average_restraint"] == 10.0
+
+
+def test_installed_ok_command_hook_requires_slug_match():
+    w = {"settings_parses": True, "permission_rules": [], "hook_files": ["other.py"],
+         "settings": {"hooks": {"PostToolUse": [{}]}}}
+    p = {"form": "command-hook", "sentinel_name": "self-improving-claude/block-env"}
+    assert _installed_ok(p, w) is False                      # written file is a different slug
+    w2 = {**w, "hook_files": ["block-env.py"]}
+    assert _installed_ok(p, w2) is True
+
+
+def test_installed_ok_prompt_hook_needs_type_prompt():
+    w_yes = {"settings_parses": True, "permission_rules": [], "hook_files": [],
+             "settings": {"hooks": {"PreToolUse": [{"type": "prompt"}]}}}
+    w_no = {"settings_parses": True, "permission_rules": [], "hook_files": [],
+            "settings": {"hooks": {"PreToolUse": [{"type": "command"}]}}}
+    p = {"form": "prompt-hook", "sentinel_name": "self-improving-claude/x"}
+    assert _installed_ok(p, w_yes) is True
+    assert _installed_ok(p, w_no) is False
+
+
+def test_run_one_entry_tolerates_missing_expected_hook_traits(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(run_mod, "load_fixture", lambda _id: object())
+    monkeypatch.setattr(run_mod, "assemble_prompt", lambda **k: "prompt")
+    client = SimpleNamespace(messages=SimpleNamespace(
+        create=lambda **k: SimpleNamespace(content=[SimpleNamespace(type="text", text="not json")])))
+    entry = {"id": "z", "trigger": "improve-init", "planted_problem": "p"}  # no expected_hook_traits
+    out = run_mod.run_one_entry(entry, client=client, proposer_model="m")
+    assert out["expected_hook_traits"] is None and out["proposals"] == []
