@@ -200,3 +200,41 @@ def test_integration_real_api_call():
     text = resp.content[0].text
     proposals = parse_proposals(text)
     assert len(proposals) >= 1, f"Got no proposals. Raw: {text[:500]}"
+
+
+import evals.run as run_mod
+from evals.run import _installed_ok, _aggregate_sandbox
+
+
+def test_installed_ok_permission_rule_present():
+    w = {"settings_parses": True, "permission_rules": ["Read(**/.env*)"], "hook_files": [], "settings": {}}
+    assert _installed_ok({"form": "permissions.deny", "rule": "Read(**/.env*)"}, w) is True
+    assert _installed_ok({"form": "permissions.deny", "rule": "Read(**/secret*)"}, w) is False
+
+
+def test_installed_ok_claude_md_note_is_na():
+    w = {"settings_parses": True, "permission_rules": [], "hook_files": [], "settings": {}}
+    assert _installed_ok({"form": "claude-md-note", "claude_md_line": "# x"}, w) is None
+
+
+def test_installed_ok_command_hook_needs_file():
+    w = {"settings_parses": True, "permission_rules": [], "hook_files": ["h.py"],
+         "settings": {"hooks": {"PostToolUse": [{"x": 1}]}}}
+    assert _installed_ok({"form": "command-hook", "sentinel_name": "self-improving-claude/h"}, w) is True
+    w2 = {**w, "hook_files": []}
+    assert _installed_ok({"form": "command-hook", "sentinel_name": "self-improving-claude/h"}, w2) is False
+
+
+def test_aggregate_sandbox_separates_restraint_and_install_rate():
+    results = [
+        {"id": "a", "code_grades": [{"mean": 8.0}], "model_grades": [{"valid": True, "score": 7}],
+         "proposals": [{}], "installed": [True]},
+        {"id": "b", "code_grades": [{"mean": 6.0}], "model_grades": [{"valid": True, "score": 5}],
+         "proposals": [{}], "installed": [False]},
+        {"id": "r", "expect_no_proposal": True, "restraint": 10},
+    ]
+    agg = _aggregate_sandbox(results)
+    assert agg["average_code"] == 7.0
+    assert agg["install_rate"] == 0.5
+    assert agg["average_restraint"] == 10.0
+    assert len(agg["entries"]) == 2 and len(agg["restraint_entries"]) == 1

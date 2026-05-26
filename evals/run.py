@@ -18,6 +18,7 @@ import sys
 from evals.fixtures_lib import EVALS_DIR, Fixture, load_dataset, load_fixture
 from evals.grade_code import grade_code
 from evals.grade_model import grade_model
+from evals.sandbox_runner import run_in_sandbox
 
 REPO_ROOT = EVALS_DIR.parent
 SKILL_REFS = REPO_ROOT / "plugin" / "skills" / "improve" / "references"
@@ -183,6 +184,61 @@ def _aggregate(per_entry_results: list[dict]) -> dict:
         "average_model": (sum(model_maxes) / len(model_maxes)) if model_maxes else None,
         "average_clean_rate": sum(e["clean_rate"] for e in entries) / len(entries),
         "entries": entries,
+    }
+
+
+SANDBOX_PLUGIN_PATH = REPO_ROOT / "plugin"
+
+
+def _installed_ok(proposal: dict, written: dict) -> bool | None:
+    """Did this echoed proposal actually land on disk? None = N/A (claude-md-note,
+    which Step 9 never writes). Coarse integrity signal, never folded into grades."""
+    form = proposal.get("form")
+    if form == "claude-md-note":
+        return None
+    if not written.get("settings_parses"):
+        return False
+    if form in ("permissions.deny", "permissions.ask"):
+        return (proposal.get("rule") or "") in (written.get("permission_rules") or [])
+    if form == "command-hook":
+        return bool(written.get("hook_files")) and bool(written.get("settings", {}).get("hooks"))
+    if form == "prompt-hook":
+        return bool(written.get("settings", {}).get("hooks"))
+    return False
+
+
+def _aggregate_sandbox(results: list[dict]) -> dict:
+    """Rollup for sandbox mode: code/model/clean over positive fixtures, a separate
+    install_rate integrity axis, and average_restraint over expect_no_proposal fixtures."""
+    pos = [r for r in results if not r.get("expect_no_proposal")]
+    restraint = [r for r in results if r.get("expect_no_proposal")]
+    entries = []
+    install_flags: list[bool] = []
+    for r in pos:
+        codes = [c["mean"] for c in r["code_grades"]]
+        valid_models = [m["score"] for m in r["model_grades"]
+                        if m.get("valid") and m.get("score") is not None]
+        oks = [o for o in r.get("installed", []) if o is not None]
+        install_flags.extend(oks)
+        entries.append({
+            "id": r["id"],
+            "code_max": max(codes, default=0.0),
+            "code_mean": (sum(codes) / len(codes)) if codes else 0.0,
+            "model_max": max(valid_models, default=None),
+            "clean_rate": (sum(1 for c in codes if c >= CLEAN_THRESHOLD) / len(codes)) if codes else 0.0,
+            "n_proposals": len(r.get("proposals", [])),
+            "install_rate": (sum(1 for o in oks if o) / len(oks)) if oks else None,
+        })
+    restraint_entries = [{"id": r["id"], "restraint": r["restraint"]} for r in restraint]
+    model_maxes = [e["model_max"] for e in entries if e["model_max"] is not None]
+    return {
+        "average_code": (sum(e["code_max"] for e in entries) / len(entries)) if entries else None,
+        "average_model": (sum(model_maxes) / len(model_maxes)) if model_maxes else None,
+        "average_clean_rate": (sum(e["clean_rate"] for e in entries) / len(entries)) if entries else None,
+        "install_rate": (sum(1 for o in install_flags if o) / len(install_flags)) if install_flags else None,
+        "average_restraint": (sum(e["restraint"] for e in restraint_entries) / len(restraint_entries)) if restraint_entries else None,
+        "entries": entries,
+        "restraint_entries": restraint_entries,
     }
 
 
