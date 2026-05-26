@@ -332,3 +332,30 @@ python3 -m evals.benchmark --independent         # one judge call per proposal (
 5. **n=4 is a noise band, not a CI** — the leaderboard flags pairs "within noise" so small gaps aren't over-read.
 
 **Output:** `evals/results/benchmark/<date>-bench.json` (per-cell stats + leaderboard).
+
+---
+
+## Real-skill sandbox eval (`python3 -m evals.run --sandbox`) — v0.4.0
+
+The **canonical conformance eval as of v0.4.0**. Unlike the legacy tables above — which assemble a *proxy* prompt from `prompt_template.md` + the references and never read `SKILL.md` — this mode drives the **real `/improve` / `/improve-init` slash command end-to-end**: it builds a throwaway temp project from the fixture, invokes the actual plugin command headlessly via `claude --print`, lets the orchestrator run its real Steps 1–9 (real Read/Grep/Bash tool use, real file writes), and grades what it produces. This closes the proxy gap (Track 6.2): a `SKILL.md` regression can now be caught.
+
+The legacy prompt path is **retained** (still imported by `benchmark.py`) but is no longer the canonical conformance instrument.
+
+**How to run** (one model per invocation):
+```bash
+SANDBOX_MODEL=haiku            python3 -m evals.run --sandbox
+SANDBOX_MODEL=claude-sonnet-4-5 python3 -m evals.run --sandbox
+SANDBOX_MODEL=opus             python3 -m evals.run --sandbox   # premium — run deliberately
+```
+Output: `evals/results/<date>-v0.4.0-sandbox-<model>.json`.
+
+**How it works:** for each fixture, `evals/sandbox_runner.py` writes the fixture's project files + telemetry into a temp dir, then runs `claude --print --plugin-dir <repo>/plugin --permission-mode bypassPermissions --output-format json --append-system-prompt <override> "/improve[-init] <args>"`. The override suppresses the interactive Step 8 approval, auto-applies surviving candidates (real Step 9 writes), and makes the final message a single JSON echo of the proposals. The echo is graded by the **unchanged** `grade_code` / `grade_model` (grader pinned to Haiku). Two extra axes: `install_rate` (did the echoed proposal actually land + parse on disk — the seed of a future firing harness) and `average_restraint` (the `expect_no_proposal` fixtures 011/012 score 10 iff the run proposes nothing **and** writes nothing).
+
+**Caveats (read before trusting the numbers):**
+1. **Claude-models-only.** Running the real slash command needs a Claude Code runtime, so gemma-via-Ollama is **dropped** from this baseline (it has no skill/tool runtime). The free no-key local reference lives only on the legacy prompt path now.
+2. **N=1, non-deterministic.** Each cell is one full agentic run; agentic tool-use varies run to run. Read **gross drift**, not fine deltas.
+3. **Coercive override → possible rubric distortion.** The run uses `bypassPermissions` in a throwaway temp dir plus a *forceful* non-interactive override (a mild one let Step 8 dominate). Under that pressure a smaller model can go off-rubric (in spike testing one Haiku run proposed a command-hook instead of the gold `permissions.deny`; another chose correctly). Treat proposals as produced under a non-interactive override, not the interactive UX.
+4. **Integrity stops at "exists + parses,"** not hook *firing*. Verifying a generated hook actually fires in a live session is deferred to the 6.1 behavioral harness.
+5. **Not comparable to the v0.3.4 prompt-path numbers** — the instrument changed (real skill vs. proxy). This is a re-baseline, not a trend line.
+
+**Cost:** each cell is a full agentic procedure (multiple tool calls), materially pricier than the legacy single-prompt path. The Opus leg is quota-gated.
