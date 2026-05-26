@@ -330,3 +330,16 @@ def test_run_one_entry_tolerates_missing_expected_hook_traits(monkeypatch):
     entry = {"id": "z", "trigger": "improve-init", "planted_problem": "p"}  # no expected_hook_traits
     out = run_mod.run_one_entry(entry, client=client, proposer_model="m")
     assert out["expected_hook_traits"] is None and out["proposals"] == []
+
+
+def test_run_one_entry_sandbox_forwards_judge_model(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(run_mod, "run_in_sandbox",
+        lambda **k: _sb_result([{"form": "permissions.deny", "rule": "r", "rationale": "x"}]))
+    monkeypatch.setattr(run_mod, "load_fixture", lambda _id: object())
+    monkeypatch.setattr(run_mod, "grade_model",
+        lambda **k: captured.update(k) or {"valid": True, "score": 7})
+    entry = {"id": "002-x", "trigger": "improve-init",
+             "expected_hook_traits": {"form": "permissions.deny"}, "planted_problem": "p"}
+    run_mod.run_one_entry_sandbox(entry, model="haiku", grader_client=None, judge_model="opus")
+    assert captured["judge_model"] == "opus"

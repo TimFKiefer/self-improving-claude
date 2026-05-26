@@ -17,7 +17,7 @@ import sys
 
 from evals.fixtures_lib import EVALS_DIR, Fixture, load_dataset, load_fixture
 from evals.grade_code import grade_code
-from evals.grade_model import grade_model
+from evals.grade_model import GRADER_MODEL, grade_model
 from evals.sandbox_runner import run_in_sandbox
 
 REPO_ROOT = EVALS_DIR.parent
@@ -244,7 +244,8 @@ def _aggregate_sandbox(results: list[dict]) -> dict:
     }
 
 
-def run_one_entry_sandbox(entry: dict, *, model: str, grader_client) -> dict:
+def run_one_entry_sandbox(entry: dict, *, model: str, grader_client,
+                          judge_model: str = GRADER_MODEL) -> dict:
     """Run one dataset entry through the REAL slash command in a sandbox, then grade.
 
     Restraint fixtures (expect_no_proposal) are scored binary on emptiness; positive
@@ -266,7 +267,7 @@ def run_one_entry_sandbox(entry: dict, *, model: str, grader_client) -> dict:
         "id": entry["id"], "trigger": entry["trigger"], "proposals": proposals,
         "code_grades": [grade_code(p, entry["expected_hook_traits"]) for p in proposals],
         "model_grades": [grade_model(proposal=p, planted_problem=entry["planted_problem"],
-                                     client=grader_client) for p in proposals],
+                                     client=grader_client, judge_model=judge_model) for p in proposals],
         "installed": [_installed_ok(p, sb["written"]) for p in proposals],
         "written": sb["written"], "echo_valid": sb["echo_valid"], "error": sb["error"],
     }
@@ -345,7 +346,8 @@ def main(argv: list[str] | None = None) -> int:
 def _main_sandbox(args) -> int:
     from evals.client_claude_cli import ClaudeCliClient
     model = os.environ.get("SANDBOX_MODEL", "haiku")
-    grader_client = ClaudeCliClient()  # Haiku grader (grade_model pins GRADER_MODEL)
+    judge = os.environ.get("SANDBOX_JUDGE", "haiku")
+    grader_client = ClaudeCliClient()  # client for grading; judge model is set per-call
 
     entries = load_dataset()
     if getattr(args, "entry", None):
@@ -353,18 +355,18 @@ def _main_sandbox(args) -> int:
         if not entries:
             print(f"No entry with id={args.entry}", file=sys.stderr)
             return 2
-    print(f"Sandbox eval — proposer={model}, grader=haiku, {len(entries)} entries", file=sys.stderr)
+    print(f"Sandbox eval — proposer={model}, judge={judge}, {len(entries)} entries", file=sys.stderr)
 
     results = []
     for entry in entries:
         print(f"  /{'improve' if entry['trigger'] == 'improve' else 'improve-init'} x {entry['id']} ...",
               file=sys.stderr)
-        results.append(run_one_entry_sandbox(entry, model=model, grader_client=grader_client))
+        results.append(run_one_entry_sandbox(entry, model=model, grader_client=grader_client, judge_model=judge))
 
     agg = _aggregate_sandbox(results)
     output = {
         "date": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "mode": "sandbox", "proposer": model, "grader": "haiku",
+        "mode": "sandbox", "proposer": model, "judge": judge,
         "results": results, "summary": agg,
     }
     results_dir = EVALS_DIR / "results"
