@@ -84,3 +84,40 @@ def test_read_written_unparseable_settings(tmp_path):
     (cdir / "settings.json").write_text("{ not json")
     w = _read_written(tmp_path)
     assert w["settings_parses"] is False and w["permission_rules"] == []
+
+
+from types import SimpleNamespace
+import evals.sandbox_runner as sr
+
+
+def test_run_in_sandbox_orchestrates(monkeypatch):
+    captured = {}
+
+    def fake_run(argv, *, cwd, capture_output, text, timeout):
+        captured["argv"] = argv
+        captured["cwd"] = cwd
+        cdir = Path(cwd) / ".claude"; (cdir / "hooks").mkdir(parents=True, exist_ok=True)
+        (cdir / "settings.json").write_text(json.dumps({"permissions": {"deny": ["Read(**/.env*)"]}}))
+        result = {"result": '{"proposals":[{"form":"permissions.deny","rule":"Read(**/.env*)"}]}'}
+        return SimpleNamespace(returncode=0, stdout=json.dumps(result), stderr="")
+
+    monkeypatch.setattr(sr.subprocess, "run", fake_run)
+    fx = _fx(project_files={"CLAUDE.md": "# p\n"})
+    out = sr.run_in_sandbox(entry={"id": "x", "trigger": "improve-init", "user_args": ""},
+                            fixture=fx, model="haiku", plugin_path=Path("/repo/plugin"))
+    assert out["echo"][0]["rule"] == "Read(**/.env*)"
+    assert out["echo_valid"] is True
+    assert out["written"]["settings_parses"] is True
+    assert "Read(**/.env*)" in out["written"]["permission_rules"]
+    assert out["returncode"] == 0 and out["error"] is None
+    assert captured["argv"][-1] == "/improve-init"
+    assert not Path(captured["cwd"]).exists()
+
+
+def test_run_in_sandbox_nonzero_returncode_sets_error(monkeypatch):
+    monkeypatch.setattr(sr.subprocess, "run",
+        lambda *a, **k: SimpleNamespace(returncode=1, stdout="", stderr="boom"))
+    out = sr.run_in_sandbox(entry={"id": "x", "trigger": "improve", "user_args": "do it"},
+                            fixture=_fx(chat="USER: x\n"), model="haiku", plugin_path=Path("/p"))
+    assert out["returncode"] == 1 and "boom" in out["error"]
+    assert out["echo"] == [] and out["echo_valid"] is False

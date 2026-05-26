@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 from evals.client_claude_cli import _to_cli_model
@@ -125,3 +128,43 @@ def _read_written(tmp: Path) -> dict:
         "hook_files": hook_files,
         "permission_rules": permission_rules,
     }
+
+
+def run_in_sandbox(*, entry: dict, fixture: Fixture, model: str,
+                   plugin_path: Path, timeout: float = 600) -> dict:
+    """Drive the real slash command headlessly for one (fixture x model).
+
+    Returns {echo, echo_valid, written, raw_result, returncode, error}. Always
+    tears down the temp project, even on failure.
+    """
+    command = "/improve" if entry["trigger"] == "improve" else "/improve-init"
+    user_args = (entry.get("user_args") or "").strip()
+    if user_args:
+        command = f"{command} {user_args}"
+    override = _build_override(entry, fixture)
+    tmp = Path(tempfile.mkdtemp(prefix="sic-eval-"))
+    try:
+        _build_sandbox(tmp, fixture)
+        argv = _build_argv(model=model, command=command, plugin_path=plugin_path, override=override)
+        try:
+            proc = subprocess.run(argv, cwd=str(tmp), capture_output=True, text=True, timeout=timeout)
+        except FileNotFoundError as e:
+            raise RuntimeError("`claude` CLI not found on PATH — is Claude Code installed?") from e
+        error = None
+        result_text = ""
+        if proc.returncode != 0:
+            error = f"claude rc={proc.returncode}: {(proc.stderr or '')[:500]}"
+        else:
+            try:
+                payload = json.loads(proc.stdout)
+                result_text = payload.get("result", "") if isinstance(payload, dict) else ""
+            except json.JSONDecodeError:
+                result_text = proc.stdout
+        echo, echo_valid = _parse_echo(result_text)
+        written = _read_written(tmp)
+        return {
+            "echo": echo, "echo_valid": echo_valid, "written": written,
+            "raw_result": result_text, "returncode": proc.returncode, "error": error,
+        }
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
