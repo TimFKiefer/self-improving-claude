@@ -1,0 +1,7 @@
+{
+  "name": "acme-web",
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "test:ci": "vitest run"
+  }
+}

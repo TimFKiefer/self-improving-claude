@@ -96,3 +96,12 @@ def test_telemetry_jsonl_parses_each_line(tmp_path, monkeypatch):
     monkeypatch.setattr("evals.fixtures_lib.EVALS_DIR", tmp_path)
     fx = load_fixture(fid)
     assert fx.telemetry == telemetry
+
+
+def test_restraint_fixtures_load_and_flag():
+    ids = {e["id"]: e for e in load_dataset()}
+    for fid in ("011-no-overblock-deny", "012-one-off-bug-no-guardrail"):
+        assert ids[fid]["expect_no_proposal"] is True
+        assert "expected_hook_traits" not in ids[fid]      # restraint fixtures omit it
+        fx = load_fixture(fid)                              # dir loads without error
+        assert fx.id == fid

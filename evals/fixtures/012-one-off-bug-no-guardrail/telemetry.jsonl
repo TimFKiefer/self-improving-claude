@@ -1,0 +1,2 @@
+{"ts":"2026-05-24T14:00:10Z","tool":"Edit","args_summary":"/project/src/invoice.py"}
+{"ts":"2026-05-24T14:02:55Z","tool":"Bash","args_summary":"python -m pytest","outcome":{"exit_code":0}}

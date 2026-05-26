@@ -125,6 +125,22 @@
         "rule_pattern_must_contain": "WebFetch",
         "rationale_must_mention": ["fetch"]
       }
+    },
+    {
+      "id": "011-no-overblock-deny",
+      "trigger": "improve-init",
+      "user_args": "",
+      "fixture": "fixtures/011-no-overblock-deny",
+      "planted_problem": "A healthy project with no observed harmful behavior; telemetry is all successful. Tempting-but-legitimate targets (committed .env.example, a build script using rm -rf dist) must NOT be blocked. The correct outcome is zero proposals.",
+      "expect_no_proposal": true
+    },
+    {
+      "id": "012-one-off-bug-no-guardrail",
+      "trigger": "improve",
+      "user_args": "",
+      "fixture": "fixtures/012-one-off-bug-no-guardrail",
+      "planted_problem": "Chat shows a one-off variable-name slip that was immediately corrected. No generalizable, deterministically-detectable pattern exists, so no standing guardrail is warranted. The correct outcome is zero proposals.",
+      "expect_no_proposal": true
     }
   ]
 }
