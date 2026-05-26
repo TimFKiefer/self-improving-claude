@@ -376,3 +376,20 @@ Files: `2026-05-26-v0.4.0-sandbox-{haiku,claude-sonnet-4-5,opus}.json`. Proposer
 - **install_rate** (did the echoed proposal land + parse on disk) varies independently of quality: Haiku 100%, Opus 67%, Sonnet 54%.
 
 **Heavy caveats:** N=1 (non-deterministic agentic runs); **Opus-judges-Opus self-preference** inflates the Opus model column; and every proposal was produced under the *forceful non-interactive override* (the bypassPermissions path) — the restraint results show this can coerce over-proposing in the smaller models. Read this as a first exercise of the real-skill harness, not a definitive ranking. A true "ceiling" run (per the benchmark-thinking-config preference) would add `--effort max`, now exposed by `claude --print` (≥ v2.1.150).
+
+### Ceiling baseline — 2026-05-26, `--effort max` (Opus judge)
+
+Same harness with `SANDBOX_EFFORT=max` on both proposer and judge. Files: `2026-05-26-v0.4.0-sandbox-{haiku,claude-sonnet-4-5,opus}-effort-max.json`.
+
+| Proposer | code (def → max) | model (def → max) | install (def → max) | restraint (def → max) |
+|---|--:|--:|--:|--:|
+| Haiku 4.5 | 6.7 → 5.8 | 5.1 → 4.7 | 100% → 80% | 0 → 0 |
+| Sonnet 4.5 (200k) | 8.1 → 8.3 | 5.9 → 4.7 | 54% → 73% | 0 → 0 |
+| Opus 4.7 | 5.6 → **8.7** | 7.1 → **8.0** | 67% → 67% | **10 → 0** |
+
+**Two clear effects:**
+- **Max effort vindicates measuring frontier models at their ceiling.** At default effort Opus emitted *no gradeable proposal* on 3 positive fixtures (004/007/008 → 0/0); at max effort it scores **code 10** on all three (004 10/8, 008 10/9). Opus goes from looking worst on conformance (5.6) to the clear leader on **both** axes (code 8.7, model 8.0). The default run under-represented it — exactly the artifact the benchmark-thinking-config preference guards against.
+- **Restraint collapses for everyone at max effort** — Opus drops 10 → 0; all three now over-propose on the negative fixtures (011/012). More reasoning ⇒ more eager to find *something* to propose. A real tradeoff: the ceiling config that surfaces Opus's positive-case strength also defeats restraint.
+- Haiku does **not** benefit from more effort (slightly worse); Sonnet's conformance is flat and its judged score drops. The ceiling lift is a frontier-model phenomenon here.
+
+Caveats unchanged (N=1; Opus-judges-Opus; forceful override). Net: at the models' ceiling, **Opus is the strongest hook author** in this harness — but under the forceful override no model exercises restraint.
