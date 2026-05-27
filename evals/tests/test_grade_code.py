@@ -504,3 +504,42 @@ def test_required_rules_presence():
     p = {"form": "permissions.deny", "rule": "Edit(src/generated/prisma/**)",
          "rationale": "block generated"}
     assert grade_code(p, expected)["rules_present"] == ["src/generated/prisma"]
+
+
+# --- v0.4.x: stdin_envelope check (tool_name/tool_input, NOT tool/args) ---
+
+def test_stdin_envelope_passes_correct_fields():
+    # PERFECT hook reads ev.get("tool_name") / ev.get("tool_input")
+    assert grade_code(PERFECT_BASH_BLOCK_HOOK, EXPECTED_001)["checks"]["stdin_envelope"] == 10
+
+
+def test_stdin_envelope_fails_wrong_fields():
+    bad = dict(PERFECT_BASH_BLOCK_HOOK, script=(
+        'import json, sys\n'
+        'd = json.loads(sys.stdin.read())\n'
+        'if d.get("tool") == "Bash" and "pnpm test" in d.get("args", ""):\n'
+        '    print("blocked", file=sys.stderr); sys.exit(2)\n'
+        'sys.exit(0)\n'))
+    r = grade_code(bad, EXPECTED_001)
+    assert r["checks"]["stdin_envelope"] == 0                       # reads tool/args
+    assert r["mean"] < grade_code(PERFECT_BASH_BLOCK_HOOK, EXPECTED_001)["mean"]
+
+
+def test_stdin_envelope_na_for_non_command_hook():
+    p = {"form": "permissions.deny", "rule": "Read(**/.env*)", "rationale": ".env"}
+    assert grade_code(p, {"form": "permissions.deny"})["checks"]["stdin_envelope"] is None
+
+
+def test_stdin_envelope_na_when_no_stdin():
+    p = dict(PERFECT_BASH_BLOCK_HOOK, script="import sys\nsys.exit(0)\n")
+    assert grade_code(p, EXPECTED_001)["checks"]["stdin_envelope"] is None
+
+
+def test_stdin_envelope_not_fooled_by_tool_name_substring():
+    # tool_name / tool_input must NOT be mistaken for the bare tool/args keys
+    p = dict(PERFECT_BASH_BLOCK_HOOK, script=(
+        'import json, sys\n'
+        'ev = json.load(sys.stdin)\n'
+        't = ev.get("tool_name"); i = ev.get("tool_input") or {}\n'
+        'sys.exit(0)\n'))
+    assert grade_code(p, EXPECTED_001)["checks"]["stdin_envelope"] == 10

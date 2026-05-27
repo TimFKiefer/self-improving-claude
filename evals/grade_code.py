@@ -209,6 +209,24 @@ def _rules_present(p: dict, e: dict):
     return [r for r in req if r in rule]
 
 
+# v0.4.x: catch the wrong hook stdin envelope. Generated command-hooks must read
+# `tool_name`/`tool_input` (the real envelope); the invented data["tool"]/data["args"]
+# keys make the guard never match, so the hook silently exits 0 (no-op). The firing
+# harness catches this behaviorally; this is the cheap static guard.
+_WRONG_ENVELOPE_RE = re.compile(r'''(?:\.get\(\s*|\[\s*)["'](?:tool|args)["']''')
+
+
+def _check_stdin_envelope(p: dict, e: dict) -> int | None:
+    """For a command-hook that reads stdin, verify it uses tool_name/tool_input and
+    not the invented tool/args keys. 10 / 0 / None (N/A: non-command-hook or no stdin)."""
+    if p.get("form") != "command-hook":
+        return None
+    script = p.get("script") or ""
+    if "stdin" not in script:
+        return None
+    return 0 if _WRONG_ENVELOPE_RE.search(script) else 10
+
+
 _CHECKS = {
     "form_matches": _check_form_matches,
     "event_matches": _check_event_matches,
@@ -218,6 +236,7 @@ _CHECKS = {
     "rationale_keywords": _check_rationale_keywords,
     "imperative_stderr": _check_imperative_stderr,
     "rule_pattern": _check_rule_pattern,
+    "stdin_envelope": _check_stdin_envelope,
 }
 
 
