@@ -159,7 +159,27 @@ The rubric in `<rubric>` is the contract for what makes a proposal shippable. Th
 - use portable paths (`${CLAUDE_PROJECT_DIR}` for project hooks, `${CLAUDE_PLUGIN_ROOT}` for plugin-shipped scripts)
 - come with a one-sentence rationale that names the bug AND why this form (not the lighter one in Step 4) was the right call
 
-Command-hook scripts should start with the stdin → JSON → branch boilerplate from `@references/tools-reference.md` — even short scripts, because matchers can widen later and the boilerplate keeps them robust.
+Command-hook scripts MUST start from this exact stdin skeleton. The hook receives a JSON envelope on **stdin** whose fields are `tool_name` and `tool_input` (a dict) — **NOT** `tool`/`args`. Reading the wrong field names is the single most common way a generated hook silently no-ops (the guard never matches, so it exits 0 and never fires):
+
+```python
+import json, sys
+
+def main():
+    try:
+        ev = json.load(sys.stdin)
+    except Exception:
+        return 0  # never break Claude Code on bad input
+    tool = ev.get("tool_name", "")           # e.g. "Bash" / "Edit" — NOT ev["tool"]
+    inp  = ev.get("tool_input")  or {}        # e.g. Bash: inp.get("command",""); Edit: inp.get("file_path") — NOT ev["args"]
+    resp = ev.get("tool_response") or {}      # PostToolUse only
+    # branch on `tool`, inspect `inp`/`resp`; to BLOCK: print(msg, file=sys.stderr); return 2
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+Keep even short scripts on this skeleton (matchers can widen later). `@references/tools-reference.md` has the per-tool `tool_input`/`tool_response` field tables.
 
 ## Step 6 — Self-critique, then revise (cap retries at 2)
 
