@@ -393,3 +393,30 @@ Same harness with `SANDBOX_EFFORT=max` on both proposer and judge. Files: `2026-
 - Haiku does **not** benefit from more effort (slightly worse); Sonnet's conformance is flat and its judged score drops. The ceiling lift is a frontier-model phenomenon here.
 
 Caveats unchanged (N=1; Opus-judges-Opus; forceful override). Net: at the models' ceiling, **Opus is the strongest hook author** in this harness — but under the forceful override no model exercises restraint.
+
+### Baseline with hook-firing — 2026-05-27 (Opus judge, default effort)
+
+First run with the Track 6.1 firing harness, so it adds the `fire_rate` column. Files: `2026-05-27-v0.4.0-sandbox-{haiku,claude-sonnet-4-5,opus}.json`.
+
+| Proposer | code | model | install | **fire_rate** | restraint |
+|---|--:|--:|--:|--:|--:|
+| Haiku 4.5 | 6.9 | 4.9 | 50% | **0%** | 0/10 |
+| Sonnet 4.5 (200k) | 8.0 | 5.0 | 77% | **25%** | 0/10 |
+| Opus 4.7 | 8.3 | 6.9 | 77% | **40%** | 5/10 |
+
+**Headline: generated command-hooks mostly don't actually fire.** `fire_rate` = fraction of `command-hook` proposals that block the bad input (exit 2) **and** pass the clean input when driven with a synthetic stdin payload. Even Opus reaches only **40%** despite an 8.3 static code grade — the deterministic shape grader badly over-states hook quality, exactly the gap Track 6.1 exists to expose.
+
+Per command-hook fixture (T = fired, F = no-op):
+
+| fixture | haiku | sonnet | opus |
+|---|---|---|---|
+| 001-pnpm-test-watcher (PreToolUse) | — | F | T F |
+| 005-format-on-write (PostToolUse) | F | F | F |
+| 006-rename-callers (PostToolUse) | F | F | F |
+| 008-secret-in-source (PreToolUse) | F | **T** | **T** |
+
+- The two **PostToolUse** fixtures (005, 006) **never fire on any model** (0/3 each).
+- **008 fires for Sonnet + Opus** — which also confirms the harness registers *real* firing, not just always-False.
+- **Root cause** (seen in the proposals): hooks read `data["tool"]` / `data["args"]` instead of the real `tool_name` / `tool_input` envelope, so the guard never matches and the hook exits 0. A clear **v0.4.x patch target**: tighten the rubric/examples on the `tool_name`/`tool_input` stdin envelope, and consider a static `grade_code` check for it.
+
+Caveats unchanged (N=1, Opus-judges-Opus, forceful override). The default-effort code/model/install numbers differ from the 2026-05-26 run within N=1 noise; `fire_rate` is the new signal.
