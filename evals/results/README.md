@@ -394,29 +394,24 @@ Same harness with `SANDBOX_EFFORT=max` on both proposer and judge. Files: `2026-
 
 Caveats unchanged (N=1; Opus-judges-Opus; forceful override). Net: at the models' ceiling, **Opus is the strongest hook author** in this harness — but under the forceful override no model exercises restraint.
 
-### Baseline with hook-firing — 2026-05-27 (Opus judge, default effort)
+### Hook-firing baseline + the envelope fix — 2026-05-27 (Opus judge, default effort)
 
-First run with the Track 6.1 firing harness, so it adds the `fire_rate` column. Files: `2026-05-27-v0.4.0-sandbox-{haiku,claude-sonnet-4-5,opus}.json`.
+The first firing-harness run found that **generated command-hooks mostly didn't fire**, and *why*: hooks read `data["tool"]`/`data["args"]` instead of the real `tool_name`/`tool_input` envelope, so the guard never matched and the hook exited 0. Root cause (controlled probe): the skill's `@references/*.md` load **lazily** (Read-on-demand, not inlined), so under the headless override the model skipped the boilerplate and invented field names. **Fix:** inline the stdin skeleton into the orchestrator (`e5eb395`) + a static `grade_code.stdin_envelope` guard (`e20306a`).
 
-| Proposer | code | model | install | **fire_rate** | restraint |
-|---|--:|--:|--:|--:|--:|
-| Haiku 4.5 | 6.9 | 4.9 | 50% | **0%** | 0/10 |
-| Sonnet 4.5 (200k) | 8.0 | 5.0 | 77% | **25%** | 0/10 |
-| Opus 4.7 | 8.3 | 6.9 | 77% | **40%** | 5/10 |
+Pre-fix run is committed at git `4fdd670`; the current `2026-05-27-v0.4.0-sandbox-{...}.json` files are the **post-fix** re-baseline.
 
-**Headline: generated command-hooks mostly don't actually fire.** `fire_rate` = fraction of `command-hook` proposals that block the bad input (exit 2) **and** pass the clean input when driven with a synthetic stdin payload. Even Opus reaches only **40%** despite an 8.3 static code grade — the deterministic shape grader badly over-states hook quality, exactly the gap Track 6.1 exists to expose.
+| Proposer | code (pre→post) | model (pre→post) | install (pre→post) | **fire_rate (pre→post)** |
+|---|--:|--:|--:|--:|
+| Haiku 4.5 | 6.9 → 5.9 | 4.9 → 4.2 | 50% → 64% | **0% → 0%** |
+| Sonnet 4.5 (200k) | 8.0 → 7.7 | 5.0 → 6.2 | 77% → 73% | **25% → 25%** |
+| Opus 4.7 | 8.3 → 7.3 | 6.9 → 7.2 | 77% → 91% | **40% → 33%** |
 
-Per command-hook fixture (T = fired, F = no-op):
+**What the fix did — and didn't:**
+- **The envelope bug is gone.** Post-fix, *every* command-hook reads `tool_name`/`tool_input`; **zero** read `tool`/`args` (the new `stdin_envelope` check is 10 wherever a hook reads stdin). The systematic wrong-envelope failure is fixed at the source.
+- **`fire_rate` did NOT lift.** The no-op problem is **multi-causal** — the envelope was only one cause. The remaining failure modes the harness now surfaces:
+  - **command-hooks that don't read stdin at all** (post-fix haiku/008, sonnet/006 → can't inspect the tool call);
+  - **logic errors** (read the envelope correctly but mis-match the trigger or over-fire on the clean input);
+  - **heavy N=1 noise** — the 008-Haiku hook *fired* in a one-off smoke but came back a no-stdin no-op in this baseline (same fixture+model, different run).
+- **Net:** the targeted bug is fixed and statically guarded; the firing harness is now doing its deeper job — pointing at the *next* layer of hook-quality failures. A real `fire_rate` lift needs N>1 (to beat the noise) plus addressing the no-stdin / logic failure modes (and likely the override-fidelity issue — the headless override still yields rushed, variable proposals). Restraint also dropped to 0/0/0 (Opus lost its 5/10 from the pre-fix run) — within N=1 noise.
 
-| fixture | haiku | sonnet | opus |
-|---|---|---|---|
-| 001-pnpm-test-watcher (PreToolUse) | — | F | T F |
-| 005-format-on-write (PostToolUse) | F | F | F |
-| 006-rename-callers (PostToolUse) | F | F | F |
-| 008-secret-in-source (PreToolUse) | F | **T** | **T** |
-
-- The two **PostToolUse** fixtures (005, 006) **never fire on any model** (0/3 each).
-- **008 fires for Sonnet + Opus** — which also confirms the harness registers *real* firing, not just always-False.
-- **Root cause** (seen in the proposals): hooks read `data["tool"]` / `data["args"]` instead of the real `tool_name` / `tool_input` envelope, so the guard never matches and the hook exits 0. A clear **v0.4.x patch target**: tighten the rubric/examples on the `tool_name`/`tool_input` stdin envelope, and consider a static `grade_code` check for it.
-
-Caveats unchanged (N=1, Opus-judges-Opus, forceful override). The default-effort code/model/install numbers differ from the 2026-05-26 run within N=1 noise; `fire_rate` is the new signal.
+Caveats unchanged (N=1, Opus-judges-Opus, forceful override). `stdin_envelope` was added to `grade_code` after the pre-fix run, so the post column's code grades include it.
