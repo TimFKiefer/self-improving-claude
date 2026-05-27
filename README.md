@@ -119,6 +119,15 @@ Baselines committed to `evals/results/`.
 - **v0.3** (current) — public release: marketplace install, hidden orchestrator, `permissions.ask` as form option, multi-event telemetry, `/improve-uninstall`, formalized feedback channel, 7-fixture eval baseline.
 - **v0.4+** — opt-in Stop-hook auto-collect (proactive pattern detection), conflict-resolution UX expansion, 10–20 eval entries, Anthropic-marketplace PR.
 
+## Development — skill single-sourcing
+
+The two orchestrator skills (`plugin/skills/improve`, `improve-init`) are **generated**
+from canonical sources in `plugin/skills/_shared/` (one orchestrator procedure +
+per-skill preambles + one references set). **Edit the `_shared/` sources, never the
+generated `SKILL.md` / `references/` files.** After editing, run
+`python3 scripts/sync_skills.py`. Run `bash scripts/install-hooks.sh` once to install a
+pre-commit hook that blocks commits when the generated files drift from `_shared/`.
+
 ## License
 
 MIT. See `LICENSE`.
