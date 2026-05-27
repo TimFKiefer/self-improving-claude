@@ -141,9 +141,9 @@ A skill body can `@`-reference files in its **own** `references/` subdirectory:
 </rubric>
 ```
 
-**`@../` (cross-directory) mentions do NOT resolve.** This was confirmed as a hard
-limitation in v0.3.0 (CHANGELOG): the probe for `@`-mention resolution outside the skill
-directory failed. That failure is why `improve` and `improve-init` each carry their own
+**`@../` (cross-directory) mentions do NOT resolve.** This was observed to fail in v0.3.0
+(CHANGELOG) — a single probe, not an official-docs guarantee: the test for `@`-mention
+resolution outside the skill directory failed. That failure is why `improve` and `improve-init` each carry their own
 `references/` copies rather than sharing a single set — the generator in
 `scripts/sync_skills.py` is the fix.
 
@@ -183,14 +183,23 @@ portable paths to `scripts/telemetry.py`. The mechanism by which Claude Code rea
 presence of this file as the declaration mechanism and `${CLAUDE_PLUGIN_ROOT}` as the
 portability pattern.
 
-Example entry from `plugin/hooks/hooks.json`:
+Structure of `plugin/hooks/hooks.json` — each event maps to an array of
+`{matcher, hooks:[...]}` groups; the hook object is nested **inside** the group, not the
+array element itself:
 
 ```json
 {
-  "name": "self-improving-claude/telemetry",
-  "type": "command",
-  "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry.py",
-  "timeout": 5
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "name": "self-improving-claude/telemetry", "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/telemetry.py", "timeout": 5 }
+        ]
+      }
+    ]
+  }
 }
 ```
 
