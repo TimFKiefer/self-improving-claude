@@ -13,7 +13,7 @@ def _fx(**kw):
 
 def test_build_override_reactive_includes_chat():
     out = _build_override({"trigger": "improve"}, _fx(chat="USER: oops\n"))
-    assert "ABSOLUTE DIRECTIVE" in out
+    assert "automated eval" in out
     assert "USER: oops" in out
 
 

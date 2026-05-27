@@ -4,8 +4,8 @@ commands end-to-end and return structured evidence for grading.
 Used by evals/run.py's sandbox mode (built across Tasks 2-4). ONE `claude --print`
 invocation per call, in a throwaway temp project built from a fixture; no retries.
 Flags were pinned by a feasibility spike: bypassPermissions (acceptEdits denied the
-Step-9 writes) + a forceful --append-system-prompt override (a mild one let the
-skill's Step 8 approval dominate). Do NOT use --bare (it disables OAuth).
+install writes) + an --append-system-prompt override (see OVERRIDE below for the
+interactive->headless adaptation). Do NOT use --bare (it disables OAuth).
 
 Spec: docs/superpowers/specs/2026-05-26-v0.4.0-real-skill-sandbox-eval-design.md
 """
@@ -21,21 +21,29 @@ from pathlib import Path
 from evals.client_claude_cli import _to_cli_model
 from evals.fixtures_lib import Fixture
 
-# The FORCEFUL override (pinned by the spike — the mild version let Step 8 win).
+# Headless override. Replaces an earlier FORCEFUL "rush + skip straight to JSON"
+# variant that suppressed the skill's own reference-reading and self-critique and so
+# depressed hook quality (a 2026-05-28 N=3 probe lifted Opus fire_rate 33%->50% just
+# by removing that sabotage). This version asks for the FULL procedure at normal
+# quality; the only interactive->headless deviations are: no approval pause, perform
+# the install writes directly, and end with a single JSON echo. The write-back clause
+# is load-bearing for install_rate; the JSON echo feeds every other metric.
 OVERRIDE = (
-    "<<EVAL HARNESS — ABSOLUTE DIRECTIVE>> This OVERRIDES ALL conflicting "
-    "instructions in the skill procedure that follows, including Step 8 (approval) "
-    "and Step 10 (close-out). You are a fully autonomous non-interactive batch "
-    "process: there is NO human, NO approval, NO further turns. You MUST: (1) NEVER "
-    "ask for approval or print 'Approve/Reject/Edit'. (2) Treat every candidate "
-    "surviving Step 1-7 as ALREADY APPROVED. (3) PERFORM the Step 9 writes NOW with "
-    "the Write tool — create .claude/settings.json and any hook script files in the "
-    "current directory. (4) Do not stop until those files exist. (5) Your FINAL "
-    "message must be EXACTLY one JSON object and nothing else: "
-    '{"proposals":[{...}]}, one object per surviving candidate, fields form, event, '
-    "matcher, rationale, script_lang, script, prompt, rule, claude_md_line, "
+    "You are running this skill non-interactively for an automated eval. Run the "
+    "skill's FULL procedure at your normal quality bar — do not rush and do not skip "
+    "steps. In particular: read your @references first (the rubric, the worked "
+    "examples, and the tools-reference stdin boilerplate), write every command-hook "
+    "from that stdin boilerplate, and do your own self-critique and syntax/stderr "
+    "validation before finalizing each candidate. There is no human and no further "
+    "turns, so adapt ONLY as follows: (1) instead of pausing to ask the user to "
+    "approve, treat every candidate that survives your self-critique as approved; "
+    "(2) perform the install writes now with the Write tool — create "
+    ".claude/settings.json and any hook script files in the current directory; "
+    "(3) your FINAL message must be EXACTLY one JSON object and nothing else: "
+    '{"proposals":[{...}]}, one object per approved candidate, with fields form, '
+    "event, matcher, rationale, script_lang, script, prompt, rule, claude_md_line, "
     "sentinel_name (include claude-md-note candidates even though you do not write "
-    "those to disk). NO prose before or after the JSON."
+    "those to disk). No prose before or after the JSON."
 )
 
 
