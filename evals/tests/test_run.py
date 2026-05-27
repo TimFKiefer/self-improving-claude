@@ -353,3 +353,42 @@ def test_run_one_entry_sandbox_forwards_effort(monkeypatch):
     entry = {"id": "011-x", "trigger": "improve-init", "expect_no_proposal": True}
     run_mod.run_one_entry_sandbox(entry, model="haiku", grader_client=None, effort="max")
     assert captured["effort"] == "max"
+
+
+def test_run_one_entry_sandbox_sets_fired_for_command_hook(monkeypatch):
+    monkeypatch.setattr(run_mod, "run_in_sandbox",
+        lambda **k: _sb_result([{"form": "command-hook", "script_lang": "python",
+                                 "script": "import json,sys; d=json.loads(sys.stdin.read());"
+                                           " sys.exit(2 if 'pnpm test'==d['tool_input']['command'] else 0)"}]))
+    monkeypatch.setattr(run_mod, "load_fixture", lambda _id: object())
+    monkeypatch.setattr(run_mod, "grade_model", lambda **k: {"valid": True, "score": 7})
+    entry = {"id": "001-x", "trigger": "improve-init",
+             "expected_hook_traits": {"form": "command-hook"}, "planted_problem": "p",
+             "firing_test": {"trigger": {"tool_input": {"command": "pnpm test"}},
+                             "passthrough": {"tool_input": {"command": "pnpm test:ci"}}}}
+    out = run_mod.run_one_entry_sandbox(entry, model="haiku", grader_client=None)
+    assert out["fired"] == [True]
+
+
+def test_run_one_entry_sandbox_fired_none_without_firing_test(monkeypatch):
+    monkeypatch.setattr(run_mod, "run_in_sandbox",
+        lambda **k: _sb_result([{"form": "permissions.deny", "rule": "Read(**/.env*)", "rationale": "x"}]))
+    monkeypatch.setattr(run_mod, "load_fixture", lambda _id: object())
+    monkeypatch.setattr(run_mod, "grade_model", lambda **k: {"valid": True, "score": 7})
+    entry = {"id": "002-x", "trigger": "improve-init",
+             "expected_hook_traits": {"form": "permissions.deny"}, "planted_problem": "p"}
+    out = run_mod.run_one_entry_sandbox(entry, model="haiku", grader_client=None)
+    assert out["fired"] == [None]
+
+
+def test_aggregate_sandbox_reports_fire_rate():
+    results = [
+        {"id": "a", "code_grades": [{"mean": 8.0}], "model_grades": [{"valid": True, "score": 7}],
+         "proposals": [{}], "installed": [True], "fired": [True]},
+        {"id": "b", "code_grades": [{"mean": 6.0}], "model_grades": [{"valid": True, "score": 5}],
+         "proposals": [{}], "installed": [True], "fired": [False]},
+        {"id": "c", "code_grades": [{"mean": 9.0}], "model_grades": [{"valid": True, "score": 8}],
+         "proposals": [{}], "installed": [True], "fired": [None]},
+    ]
+    agg = run_mod._aggregate_sandbox(results)
+    assert agg["fire_rate"] == 0.5

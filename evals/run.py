@@ -18,6 +18,7 @@ import sys
 from evals.fixtures_lib import EVALS_DIR, Fixture, load_dataset, load_fixture
 from evals.grade_code import grade_code
 from evals.grade_model import GRADER_MODEL, grade_model
+from evals.grade_behavior import run_firing_check
 from evals.sandbox_runner import run_in_sandbox
 
 REPO_ROOT = EVALS_DIR.parent
@@ -216,12 +217,15 @@ def _aggregate_sandbox(results: list[dict]) -> dict:
     restraint = [r for r in results if r.get("expect_no_proposal")]
     entries = []
     install_flags: list[bool] = []
+    fire_flags: list[bool] = []
     for r in pos:
         codes = [c["mean"] for c in r["code_grades"]]
         valid_models = [m["score"] for m in r["model_grades"]
                         if m.get("valid") and m.get("score") is not None]
         oks = [o for o in r.get("installed", []) if o is not None]
         install_flags.extend(oks)
+        fires = [f for f in r.get("fired", []) if f is not None]
+        fire_flags.extend(fires)
         entries.append({
             "id": r["id"],
             "code_max": max(codes, default=0.0),
@@ -238,6 +242,7 @@ def _aggregate_sandbox(results: list[dict]) -> dict:
         "average_model": (sum(model_maxes) / len(model_maxes)) if model_maxes else None,
         "average_clean_rate": (sum(e["clean_rate"] for e in entries) / len(entries)) if entries else None,
         "install_rate": (sum(1 for o in install_flags if o) / len(install_flags)) if install_flags else None,
+        "fire_rate": (sum(1 for f in fire_flags if f) / len(fire_flags)) if fire_flags else None,
         "average_restraint": (sum(e["restraint"] for e in restraint_entries) / len(restraint_entries)) if restraint_entries else None,
         "entries": entries,
         "restraint_entries": restraint_entries,
@@ -263,12 +268,20 @@ def run_one_entry_sandbox(entry: dict, *, model: str, grader_client,
             "echo": sb["echo"], "written": sb["written"], "error": sb["error"],
         }
     proposals = sb["echo"]
+    ft = entry.get("firing_test")
+
+    def _fired(p):
+        if p.get("form") != "command-hook" or not ft:
+            return None
+        return run_firing_check(p, ft)["fired"]
+
     return {
         "id": entry["id"], "trigger": entry["trigger"], "proposals": proposals,
         "code_grades": [grade_code(p, entry["expected_hook_traits"]) for p in proposals],
         "model_grades": [grade_model(proposal=p, planted_problem=entry["planted_problem"],
                                      client=grader_client, judge_model=judge_model) for p in proposals],
         "installed": [_installed_ok(p, sb["written"]) for p in proposals],
+        "fired": [_fired(p) for p in proposals],
         "written": sb["written"], "echo_valid": sb["echo_valid"], "error": sb["error"],
     }
 
@@ -381,6 +394,8 @@ def _main_sandbox(args) -> int:
     print(f"Average model:   {am:.1f}/10" if am is not None else "Average model:   n/a")
     ir, ar = agg["install_rate"], agg["average_restraint"]
     print(f"Install rate:    {ir:.0%}" if ir is not None else "Install rate:    n/a")
+    fr = agg["fire_rate"]
+    print(f"Fire rate:       {fr:.0%}" if fr is not None else "Fire rate:       n/a")
     print(f"Avg restraint:   {ar:.1f}/10" if ar is not None else "Avg restraint:   n/a")
     return 0
 
