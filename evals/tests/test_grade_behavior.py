@@ -29,8 +29,10 @@ def test_noop_hook_does_not_fire():
 
 
 def test_overbroad_hook_fails_clean():
+    # Fires correctly on the trigger (exit 2 + the required stderr) but ALSO blocks the
+    # clean input → passed_on_clean False → not fired (over-broad).
     out = run_firing_check({"form": "command-hook", "script_lang": "python",
-                            "script": "import sys; print('x', file=sys.stderr); sys.exit(2)"}, _FT)
+                            "script": "import sys; print('use test:ci instead', file=sys.stderr); sys.exit(2)"}, _FT)
     assert out["blocked_on_trigger"] is True and out["passed_on_clean"] is False
     assert out["fired"] is False
 

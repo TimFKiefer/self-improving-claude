@@ -63,13 +63,10 @@ def run_firing_check(proposal: dict, firing_test: dict, *, timeout: float = 10) 
         out["error"] = cerr
         return out
     need = firing_test.get("stderr_must_include")
+    # blocked_on_trigger is a property of the TRIGGER run alone: it exited 2 and (if a
+    # stderr substring was required) emitted it. Independent of the clean run.
+    blocked = (trig.returncode == 2) and (need is None or need in (trig.stderr or ""))
     passed = clean.returncode == 0
-    if passed:
-        # Selective hook: correct fire requires both exit 2 and the expected stderr signal.
-        blocked = (trig.returncode == 2) and (need is None or need in (trig.stderr or ""))
-    else:
-        # Overbroad hook (also blocks the clean case): record raw exit-2 as a diagnostic.
-        blocked = trig.returncode == 2
     out.update(blocked_on_trigger=blocked, passed_on_clean=passed,
                fired=(blocked and passed),
                evidence={"trigger_rc": trig.returncode,
