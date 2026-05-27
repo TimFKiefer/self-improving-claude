@@ -63,3 +63,17 @@ def test_bash_hook_fires():
           "stderr_must_include": "test:ci"}
     out = run_firing_check({"form": "command-hook", "script_lang": "bash", "script": script}, ft)
     assert out["fired"] is True
+
+
+import json as _json
+from evals.fixtures_lib import EVALS_DIR
+
+
+def test_command_hook_fixtures_have_firing_test():
+    ds = _json.loads((EVALS_DIR / "dataset.json").read_text())
+    by_id = {e["id"]: e for e in ds["entries"]}
+    for fid in ("001-pnpm-test-watcher", "005-format-on-write",
+                "006-rename-callers", "008-secret-in-source"):
+        ft = by_id[fid]["firing_test"]
+        assert "trigger" in ft and "passthrough" in ft
+        assert ft["trigger"]["tool_input"] != ft["passthrough"]["tool_input"]

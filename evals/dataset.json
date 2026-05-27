@@ -13,6 +13,10 @@
         "blocks_command_prefix": "pnpm test",
         "allows_command": "pnpm test:ci",
         "rationale_must_mention": ["pnpm test:ci", "watcher"]
+      },
+      "firing_test": {
+        "trigger":     {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "pnpm test"}},
+        "passthrough": {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "pnpm test:ci"}}
       }
     },
     {
@@ -63,6 +67,10 @@
         "event": "PostToolUse",
         "matcher": "Write|Edit|MultiEdit",
         "rationale_must_mention": ["ruff", "format"]
+      },
+      "firing_test": {
+        "trigger":     {"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": {"file_path": "/p/src/a.py", "old_string": "x=1", "new_string": "y=2"}},
+        "passthrough": {"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": {"file_path": "/p/README.md", "old_string": "a", "new_string": "b"}}
       }
     },
     {
@@ -76,6 +84,10 @@
         "event": "PostToolUse",
         "matcher_must_include": ["Edit", "MultiEdit"],
         "rationale_must_mention": ["export", "caller"]
+      },
+      "firing_test": {
+        "trigger":     {"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": {"file_path": "/p/src/api.py", "old_string": "export const FOO", "new_string": "export const BAR"}},
+        "passthrough": {"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": {"file_path": "/p/src/api.py", "old_string": "  return 1", "new_string": "  return 2"}}
       }
     },
     {
@@ -101,6 +113,10 @@
         "event": "PreToolUse",
         "matcher_must_include": ["Write", "Edit"],
         "rationale_must_mention": ["secret"]
+      },
+      "firing_test": {
+        "trigger":     {"hook_event_name": "PreToolUse", "tool_name": "Write", "tool_input": {"file_path": "/p/src/config.ts", "content": "const k = \"sk-ABC123DEF456GHI789JKL\""}},
+        "passthrough": {"hook_event_name": "PreToolUse", "tool_name": "Write", "tool_input": {"file_path": "/p/src/config.ts", "content": "const k = process.env.API_KEY"}}
       }
     },
     {
