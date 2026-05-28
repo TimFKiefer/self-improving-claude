@@ -12,6 +12,7 @@ You are the orchestrator behind `/improve` and `/improve-init`. Your job is to c
 <transcript_excerpt>{sampled rows from ~/.claude/projects/<project>/*.jsonl past-session transcripts — proactive only, may be empty}</transcript_excerpt>
 <existing_hooks>{current contents of .claude/settings.json `hooks` block}</existing_hooks>
 <existing_permissions>{current contents of .claude/settings.json `permissions` block}</existing_permissions>
+<user_preferences>{merged contents of preferences.md — see Step 2}</user_preferences>
 
 ## Grounding
 
@@ -87,11 +88,40 @@ Generated guardrails that collide with existing config are the single biggest fa
 
 You don't need to dump these into the chat — read them, hold them, and use them to filter proposals later. If `settings.json` won't parse, stop and tell the user; do not write to a file you can't read cleanly.
 
+**Read user preferences** — two layers, merged with per-project taking precedence over global:
+
+1. `${HOME}/.claude/self-improving-claude/preferences.md` (global — biases that hold across all repos)
+2. `${CLAUDE_PROJECT_DIR}/.claude/self-improving-claude/preferences.md` (per-project — this repo's quirks and prior decisions)
+
+Both files are freeform markdown with three sections: `## Avoid` (patterns to suppress), `## Prefer` (positive biases on form choice), `## Authorize` (one-off contextual authorizations to remember). Missing file = empty (not an error). Missing section = treat as empty. Hold the merged content as `<user_preferences>` and apply it in Steps 3 (filter), 4 (form bias), 8 (skip authorized re-asks), and 10 (offer to append on clear feedback). Do NOT create either file silently — Step 10 offers to bootstrap the per-project file when there's something to write.
+
+If a *global* preference triggers (filters a candidate, biases a form, or matches an authorize entry) and the situation looks specific to this repo in retrospect, flag it in the Step 10 summary so the user can move it from the global file to per-project.
+
 ## Step 3 — Find candidate problems worth fixing
 
 Look at `<recent_chat>` (reactive) or `<project_snapshot>` + `<telemetry_excerpt>` (proactive) and identify problems that are genuinely observable — actual behavior, not "Claude might one day…" hypotheticals. Strong candidates have clear evidence (a chat message, a telemetry row, a project convention) and aren't already addressed by what you found in Step 2.
 
 Cap yourself at ~5 candidates per run. If you see more, surface the best ones and mention the rest as deferred so the user can re-run.
+
+**Apply `<user_preferences>` `## Avoid` filter.** After listing candidates, drop any whose shape matches an Avoid entry (e.g. "no CLAUDE.md notes for build-tooling preferences" → drop a CLAUDE.md note about pnpm-vs-npm). Note each drop in one line in Step 10 ("skipped X — matched user Avoid preference"). The filter applies *before* Step 3.5 so the user doesn't have to re-reject what they've already rejected.
+
+## Step 3.5 — Surface candidates for user selection (default mode only)
+
+When `<user_directive>` is empty (proactive / default mode) and you have ≥1 surviving candidate, surface them to the user *before* drafting full proposals — they know which friction is on their mind right now better than evidence-volume can infer.
+
+**Skip this step when:**
+
+- `<user_directive>` is non-empty — directive or feedback mode, the user already pointed at the problem
+- Exactly one candidate survived Step 3 AND it has overwhelming evidence (≥3 distinct incidents in `<recent_chat>` OR an explicit pain statement from the user)
+
+**Otherwise**, use `AskUserQuestion` with one option per candidate (a one-sentence summary ≤80 chars + a `(recency: ... · evidence: N)` tag so the user sees what you weighted), plus two extras:
+
+- *"None — let me describe what to fix"* → take the user's reply as a directive and re-classify at Step 1
+- *"Skip this round — propose nothing"* → carry an empty set into Step 10; report "no proposals this run; none requested"
+
+Carry only the user-picked candidates forward to Step 4. The unpicked ones go in Step 10 as "deferred — not picked this run." One interaction round; user picks what to keep.
+
+**If 0 candidates survive Step 3 (post-Avoid filter):** skip Step 3.5 and Steps 4–9 entirely and jump straight to Step 10 with an empty set ("no proposals this run — nothing observed worth a guardrail").
 
 ## Step 4 — Choose the lightest form that does the job
 
@@ -116,6 +146,8 @@ For each candidate, consider these forms in order. Use the FIRST one that's *via
 6. **Last resort: `CLAUDE.md` note** — only for taste-level preferences with zero enforcement need (e.g. "prefer pnpm over npm"). Never for ordering rules ("before X do Y") or context-surfacing rules ("after X show Y") — those need an enforceable form.
 
 Prefer the lighter form when both would work. Lighter means cheaper to run, easier to audit, less code to maintain. But don't strain to make a glob fit a rule that genuinely needs logic — the priority is a guide, not an algorithm.
+
+**Apply `<user_preferences>` `## Prefer` bias.** If a Prefer entry names a form for this kind of situation (e.g. *"prefer permissions.ask over prompt-hook for git operations"*), follow it unless there's a hard reason it can't enforce *this specific* rule. Note the preference in the rationale so the user sees you respected it.
 
 If you're genuinely on the fence between two forms for the same candidate (typically `permissions.deny` vs. `permissions.ask`, OR `permissions.ask` vs. prompt-hook, OR prompt-hook vs. command-hook), use `AskUserQuestion` to let the user pick — they know whether they'd rather have a stricter rule or a smarter one.
 
@@ -199,6 +231,8 @@ Then collect their decision via `AskUserQuestion` with options: approve / reject
 
 If a proposed matcher overlaps with something the user already has, surface the conflict via `AskUserQuestion` with three sub-choices: keep both, replace the existing entry, or skip. Flag "replace" as destructive in its description — replacing destroys user-authored config and warrants a confirm.
 
+**Honor `<user_preferences>` `## Authorize` entries.** If an Authorize bullet covers the scope of this proposal (e.g. *"force-pushing to feature branches is pre-authorized; force-push to main still asks"*), don't re-ask for the kind of confirmation already established — proceed with a draft that respects the prior authorization and cite the Authorize line in the rationale. Authorize entries are scope-bound — they apply to the *kind* of action they describe, not to anything that vaguely resembles it.
+
 By default, write team-shared rules to `.claude/settings.json`. If a proposal is obviously personal (depends on a single dev's preferences or local paths), ask via `AskUserQuestion` whether the user wants `settings.json` (shared) or `settings.local.json` (personal).
 
 ## Step 9 — Write what was approved
@@ -217,6 +251,31 @@ After writing, re-read `settings.json` to confirm it still parses. If something 
 End with a short summary the user can read at a glance: what got installed, what got dropped (and why, in one line each), what got deferred for a future run. Then remind them how to activate the hooks — hooks load at session start, so they need to restart (`exit`, then `claude`) and then ESC-ESC-rewind in the fresh session to clean up this conversation's detour.
 
 Tell them how to give feedback if a hook misfires later: `/improve "the <name> hook blocked something legit"`.
+
+**Offer to capture a preference (only on CLEAR, generalizable feedback — never silently).** If during the run the user gave a transferable preference signal — rejected a proposal with a reason that generalises (*"never propose CLAUDE.md notes for build tools"*), said *"always X" / "never Y" / "I always want Z"*, or authorized a recurring exception — use `AskUserQuestion` to offer appending one bullet to:
+
+- **per-project preferences.md** (this repo's quirks) — `${CLAUDE_PROJECT_DIR}/.claude/self-improving-claude/preferences.md`
+- **global preferences.md** (cross-repo style) — `${HOME}/.claude/self-improving-claude/preferences.md`
+- **skip** — don't persist this
+
+If the chosen file doesn't exist yet, create it first with this three-section template:
+
+```markdown
+# /improve preferences
+
+Lightweight bias for /improve. Read at Step 2; per-project merged on top of global.
+
+## Avoid
+<!-- patterns to suppress: hook shapes, rule kinds, form choices you reject -->
+
+## Prefer
+<!-- positive biases on form choice, e.g. "permissions.ask over prompt-hook for git" -->
+
+## Authorize
+<!-- one-off / contextual authorizations to remember across sessions -->
+```
+
+Append the new bullet under the appropriate section (`## Avoid` / `## Prefer` / `## Authorize`), prefixed with `YYYY-MM-DD —` so future readers can audit when it was added. **Never** append on implicit signals (a bare rejection without a transferable reason is not enough). One bullet per preference; keep them surgical.
 
 ## References used by the procedure
 
