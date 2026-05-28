@@ -174,7 +174,7 @@ For each candidate, consider these forms in order. Use the FIRST one that's *via
 
 6. **Last resort: `CLAUDE.md` note** — only for taste-level preferences with zero enforcement need (e.g. "prefer pnpm over npm"). Never for ordering rules ("before X do Y") or context-surfacing rules ("after X show Y") — those need an enforceable form.
 
-Prefer the lighter form when both would work. Lighter means cheaper to run, easier to audit, less code to maintain. But don't strain to make a glob fit a rule that genuinely needs logic — the priority is a guide, not an algorithm.
+Prefer the lighter form when both would work. Lighter means cheaper to run, easier to audit, less code to maintain. But don't strain to make a glob fit a rule that genuinely needs logic — the priority is a guide, not an algorithm. Don't reject form 1 (permissions.deny) solely because it blocks more calls than the specific incident—if blocking the tool entirely solves the observed problem, prefer that over selective filtering. A broader unconditional block is simpler than conditional input inspection.
 
 **Apply `<user_preferences>` `## Prefer` bias.** If a Prefer entry names a form for this kind of situation (e.g. *"prefer permissions.ask over prompt-hook for git operations"*), follow it unless there's a hard reason it can't enforce *this specific* rule. Note the preference in the rationale so the user sees you respected it.
 
