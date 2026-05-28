@@ -2,6 +2,53 @@
 
 All notable changes to `self-improving-claude` are documented here.
 
+## [0.4.1] — 2026-05-28
+
+### Added
+- **Held-out validation subset.** `dataset.json` entries 002, 008, 012 now carry `"holdout": true`. New `run.py --no-holdout` (iteration mode) and `--holdout-only` (confirmation mode) flags, mutually exclusive. Result JSON gains `summary_visible` and `summary_holdout` blocks alongside `summary`, so a candidate that wins on the visible 9 but regresses on the held-out 3 is now visible at-a-glance. `holdout_mode` field records which subset was actually run. Closes the SkillOpt §8.3 gap that v0.4.0 dogfooding surfaced.
+- **`skill_size` advisory metric.** Each sandbox result JSON records `chars_per_invocation`, `approx_tokens_per_invocation`, and a breakdown (procedure / preamble_max / references). Non-gating — just visibility. Current baseline is ~56k chars / ~14k tokens per invocation, ~15× SkillOpt's reported median; future rounds can include deletion-only candidates with measurable size delta.
+- **`plugin/skills/_shared/README.md` — slow-state declaration.** Names this directory as the canonical source; documents the slow/fast state boundary (`_shared/` vs `.claude/self-improving-claude/`); confirms `sync_skills.py` + pre-commit `--check` enforces the invariant structurally. Documentation of structure that already exists.
+- **3 new tests** in `evals/tests/test_run.py` — dataset holdout split, empty-aggregation handling, skill_size live read. Total: 173 passing (was 170 at v0.4.0 tag, 170 in baseline + 3 new = 173).
+
+### Changed
+- Sandbox result filenames bumped from `v0.4.0` to `v0.4.1` in the date-prefix template. Pre-tag baselines remain at `evals/results/2026-05-28-v0.4.0-*.json` for reference.
+
+### Held-out subset rationale
+| id | type | why held-out |
+|---|---|---|
+| **002** (block-env-reads) | shape (permissions.deny) | tests Step-4 lightest-form discipline; haiku 6.67 code / 4 model has real headroom |
+| **008** (secret-in-source) | firing (PreToolUse Bash grep) | least manipulated by recent prompt-lab work (vs 005 which was the C1 regression target) |
+| **012** (one-off-bug-no-guardrail) | restraint | harder of the two restraint fixtures (still at 0 across all models); 011 stays visible as the success to extend |
+
+### Retroactive split of the v0.4.0 release baseline
+
+Computed from per-fixture entries in the v0.4.0 result JSONs (no re-run). For each model, the held-out fixtures are genuinely harder than the visible average — exactly what we want for a generalization test:
+
+| model | subset | code | model | install | restraint |
+|---|---|---:|---:|---:|---:|
+| haiku | visible (9) | 7.33 | 6.25 | 75% | **10.00** |
+| haiku | holdout (3) | 7.62 | 6.50 | 100% | 0.00 |
+| sonnet 4.5 | visible (9) | 9.44 | 7.50 | 71% | 0.00 |
+| sonnet 4.5 | holdout (3) | 8.33 | 6.00 | 100% | 0.00 |
+| opus | visible (9) | 9.84 | 7.88 | 100% | 0.00 |
+| opus | holdout (3) | 8.33 | 6.50 | 100% | 0.00 |
+
+Notable: haiku's restraint=5 on the full set is **entirely** from the visible fixture 011 — the held-out 012 stays at 0. So when v0.5+ iterations run against `--no-holdout`, they will see visible restraint=10 and the held-out restraint=0 is the "did the gain generalize beyond the one success?" test.
+
+### Why this patch
+v0.4.0 dogfooding (the prompt-lab loop) practiced bounded edits, reject-ties, slow/fast separation, and verifier-wall discipline without enforcing them structurally. v0.4.1 lands the three SkillOpt §8 disciplines we identified as gaps:
+- **§8.3 Validation gating** — held-out subset now exists; tie-rejection was already in place.
+- **§8.2 Compactness** — now measured; deletion-only candidate rounds become possible.
+- **§8.4 Slow/fast state** — invariant documented (already enforced by `sync_skills.py`).
+
+This unblocks v0.5 Path A: an automated edit-proposer can now iterate against the visible 9 and consult the held-out 3 for the confirmation gate.
+
+### Not in v0.4.1 (still deferred)
+- **Composed PostToolUse + Stop hooks** — v0.5 candidate per ROADMAP. The Path A loop may surface this form automatically.
+- **Auto-collect Stop hook for pattern detection** — v0.5 candidate.
+- **Edit-proposer agent** — the v0.5 brainstorm.
+- **Compactness gating** — once we have a few rounds of `skill_size` deltas to calibrate, a "size doesn't grow without a measurable score gain" policy becomes feasible. v0.4.2 if dogfooding surfaces a need.
+
 ## [0.4.0] — 2026-05-28
 
 ### Added

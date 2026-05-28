@@ -139,35 +139,47 @@ Haiku-proposes-and-Haiku-grades is the highest scorer — partly the grader-bias
 
 ---
 
-## Planned (v0.4 – v1.0)
+### v0.4.0 — Foundation for Autonomy (2026-05-28)
 
-### v0.4.0 — Foundation for Autonomy
+**What landed:** All v0.4 exit criteria met. Stretched scope late to include Phase 1+2 (ask-first + persistent user preferences) after eval evidence showed it improves every model.
 
-**Theme:** Make the eval trustworthy and the knowledge base the single source of truth — so that everything after v0.4 can build *on top of* a measurable, ratchetable substrate.
+- **Track 6 — Eval integrity.** Sandbox harness drives the REAL `/improve` / `/improve-init` via `claude --print`. `fire_rate` metric — hooks must actually fire on a constructed trigger envelope. Restraint fixtures 011 + 012 (`expect_no_proposal`). `grade_code.stdin_envelope` check catches the wrong-field silent-failure mode. Capability benchmark for cross-model leaderboards.
+- **Track 7 — Knowledge re-grounding.** `scripts/sync_skills.py` makes `plugin/skills/_shared/` canonical; pre-commit `--check` enforces no drift. Knowledge re-grounded with the four prompt-engineering amplifiers (§2–§3) and the SkillOpt-framed optimization-loop discipline (§8).
+- **Skill body improvements via prompt-lab loop.** C1′ (behavioral-trace + form-discipline guard, rubric criterion 13). Phase 1+2 (ask-first selection at Step 3.5, persistent user preferences read at Step 2 and applied at Steps 3/4/8, captured at Step 10).
 
-**Headline:**
-- **Track 6 — Eval integrity.** Sandbox harness verifies generated hooks actually fire (not just pass shape checks). Eval drives the real `SKILL.md`, not the `prompt_template.md` proxy. Noise-penalizing aggregation + a fixed grader. Negative / restraint fixtures.
-- **Track 7 — Knowledge re-grounding.** Back-propagate v0.3 lessons into `docs/knowledge/`. Single-source the references (generated from knowledge or via `@../` if a re-probe shows it now works).
+**Release baseline (opus judge, default effort, 12 fixtures):**
 
-**Opportunistic polish:**
-- Track 3 — eval expansion to ~12-15 fixtures, conflict UX smoke test, fixture 004 redesign.
-- Track 4 — productize `claude-cli` as third eval backend, GitHub Actions CI scaffolding.
-- Track 5 — `/improve-uninstall` real-project smoke test, document the dogfooding loop in CONTRIBUTING.md.
+| proposer | code | model | install | fire | restraint |
+|---|---:|---:|---:|---:|---:|
+| haiku | 7.39 | 6.30 | 80% | 25% | **5.00** (first non-zero) |
+| sonnet 4.5 | 9.22 | 7.20 | 82% | 50% | 0.00 |
+| opus | 9.54 | 7.60 | **100%** | 40% | 0.00 |
 
-**Explicitly deferred (was originally v0.4):**
-- Composed PostToolUse + Stop hooks (Tracks 1+2) — moved to v0.5 candidates because they're features, not foundation. May be obsoleted by v0.5's loop if it surfaces them automatically.
+**Dogfooding lessons (became v0.4.1 backlog):**
+- Held-out validation subset was missing — every adopted edit is partially overfit to the visible 12.
+- Compactness was untracked — skill body is ~14k tokens, ~15× SkillOpt's reported median.
+- The slow/fast state invariant (`_shared/` vs `.claude/self-improving-claude/`) was practiced but not documented.
 
-**Exit criteria — all required before tagging v0.4.0:**
-- [ ] `evals/run.py` drives the actual `SKILL.md` (not a separate template)
-- [ ] Sandbox harness can install a generated hook into a temp project and verify it fires
-- [ ] At least 2 negative / restraint fixtures present
-- [ ] References are single-sourced (`@../` resolves OR generator script in pre-commit)
-- [ ] All four prior baselines (gemma / Haiku / Sonnet / Opus) re-run against the new eval; deltas committed
-- [ ] No `# TODO` or `# FIXME` in `docs/knowledge/`
+**Bigger decision gate (still open at v0.4.0 exit):** Vision-first or features-first for v0.5? — the prompt-lab loop in v0.4 was *evidence* the v0.5 Path A auto-loop is realistic.
 
-**Decision gate at exit:** Look at v0.4's baseline scores. Are they meaningfully different from v0.3.2? If the new behavioral eval surfaces failures the shape-eval missed, those become v0.4.x patches BEFORE v0.5 starts.
+---
 
-**Bigger decision gate:** Vision-first or features-first for v0.5? (See v0.5 below.)
+## Planned (v0.4.1+ – v1.0)
+
+### v0.4.1 — SkillOpt disciplines
+
+**Theme:** Land the three structural disciplines from `docs/knowledge/prompt-engineering.md` §8 that v0.4 was practicing without enforcing.
+
+**What's planned:**
+- **Held-out validation subset.** 3 of 12 fixtures marked `holdout: true` in `dataset.json` (002 permissions.deny shape, 008 PreToolUse Bash grep firing, 012 restraint). New `run.py --no-holdout` / `--holdout-only` flags. Result JSON splits into `summary`, `summary_visible`, `summary_holdout`.
+- **Compactness tracking.** `skill_size` block in result JSON (chars + approx tokens per invocation). Non-gating advisory metric. Lets future rounds include deletion-only candidates with measurable size delta.
+- **Slow-state README.** `plugin/skills/_shared/README.md` declaring the canonical source + the slow/fast state invariant. Documentation of structure that already exists.
+
+**Exit criteria:**
+- [ ] Three v0.4.1 patches landed
+- [ ] Tests pass (≥173 — adds 3 new tests)
+- [ ] CHANGELOG updated with retroactive v0.4.0 visible/holdout split (computable from existing baseline)
+- [ ] Plugin version bumped 0.4.0 → 0.4.1; tag annotated
 
 ---
 
@@ -392,7 +404,7 @@ The only invariants:
 
 ---
 
-**Last updated:** 2026-05-24, alongside v0.3.3 development.
+**Last updated:** 2026-05-28, alongside the v0.4.0 tag (moved v0.4.0 to Done; v0.4.1 SkillOpt disciplines now Planned).
 
 **Linked artifacts:**
 - [`docs/VISION.md`](VISION.md) — what we're building toward
