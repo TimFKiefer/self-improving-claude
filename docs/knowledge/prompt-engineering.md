@@ -38,11 +38,29 @@ The first four are what we'll actually wield. Treat the rest of this doc as the 
 
 For our SKILL, every step should be an imperative: *Read the recent chat. Identify candidate problems. Draft hooks. Show each diff. Wait for approval. Write files. Instruct the user to rewind.*
 
+### Amplifier: prefer numeric anchors over vague adjectives
+
+"Be concise" is weak; "≤ 25 words" is enforceable. When you can attach a specific number — line counts, sentence limits, max examples, retry caps — do so. Models treat numbers as hard rules and adjectives as taste-level preferences.
+
+In our rubric: command-hook scripts ≤ 60 LOC, prompt-hook prompts ≤ 5 sentences, ~5 candidates per `/improve` run, cap 2 revision passes. The numbers live *inside* the criterion so the model self-checks against them, not in a separate doc that gets ignored.
+
+### Amplifier: negative imperatives suppress default behaviours
+
+Models have defaults — narrate before acting, write decorative comments, summarise-and-stop, hedge with "consider" or "verify." A positive imperative ("be direct") often loses to those defaults. A negative imperative *names the behaviour to suppress* and beats them more reliably.
+
+Pattern: name the *default* you're suppressing, then give the alternative.
+
+- "Don't explain WHAT the code does — identifiers already do that. Explain WHY when the why is non-obvious."
+- "Do not use `audit`, `consider`, `verify`, `review` in stderr — they license inaction. Use `Fix each`, `Update each`, `BLOCKING:`."
+- "Don't silently propose nothing for a real problem — surface a candidate."
+
+A bare negative rule without an alternative often leaves the model with no fallback, so it backslides. Always name what to do *instead*.
+
 ---
 
 ## 3. Be specific
 
-Two flavors, both worth using:
+Three flavors, all worth using:
 
 ### Output-quality guidelines (always use)
 
@@ -72,7 +90,18 @@ For our SKILL's hook-drafting step:
 6. Validate the script's syntax mentally before showing to the user.
 7. Write a one-sentence rationale.
 
-The combination of *guidelines + process* is what the course calls "professional prompting." We use both.
+### Decision boundaries: pair "when to use" with "when NOT to use"
+
+Per-tool / per-form guidance is twice as strong when it explicitly names both sides of the decision. Listing only "when to use" teaches *mechanism*; pairing it with "when NOT to use" teaches the decision *boundary*. Without the negative side, the model over-applies the tool to cases that look superficially similar.
+
+For our SKILL:
+
+> **Use `permissions.ask`** when "warn and let me confirm" is the right semantic (`git push`, `npm publish`).
+> **Do NOT use it** when the action should be uniformly blocked (use `permissions.deny`) or when the check needs to reason about *intent* across novel invocation shapes (use a prompt-hook).
+
+Already applied in Step 4's lightest-viable-form rule; the principle is to extend it to every form/tool guidance line, not just form selection. The C1′ form-discipline guard (Step 7) is another concrete instance — "apply the trace to command-hooks already chosen per Step 4; **do not** convert a lighter form to a command-hook to earn a fires check."
+
+The combination of *guidelines + process + decision-boundaries* is what the course calls "professional prompting." We use all three.
 
 ---
 
@@ -154,6 +183,10 @@ The course's strongest signal: *"examples are particularly powerful because they
 - After the example, **explain why the output is good** (one sentence). The course flags this as a frequently-missed step that significantly improves results.
 - Include examples that match your highest-value failure cases — most-common, most-painful, most-easily-mishandled bugs.
 - Use multi-shot when you need to cover meaningfully different scenarios (different tools, different bug types).
+
+**Why the "explain why" line is load-bearing.** The example shows the *surface*; the "why" line extracts the *principle* the model generalises from. Without it, models imitate the wrong feature of the example (the specific tool name, the variable shape) instead of the property you meant. The same holds in reverse for negative/rejected examples — the "why it's *bad*" line is what inoculates against the failure mode; the bad code is just an illustration. Treat the "why" line as the example's payload, not its caption.
+
+**Use rejected/negative examples for known failure modes.** A negative example with a sharp "why it's bad" line beats a positive-only rule for failure modes the model has a default tendency toward (e.g. reading the wrong stdin field, decorative comments, premature summary). Keep them rare and high-value — one or two in `examples.md` next to 3–5 positives is the right ratio; more dilutes the signal. Caveat (from our own eval, 2026-05-28): if the failure mode is already heavily inoculated by procedure + rubric + skeleton, an additional negative example may be *redundant* and yield no measurable gain — measure before committing.
 
 For our SKILL: maintain 3–5 curated examples in the SKILL body (or in `references/examples.md` and `@`-mentioned). Cover at minimum: a Bash-blocking hook, a `permissions.deny` rule (to demonstrate when to prefer it), and a `PostToolUse` formatter.
 
