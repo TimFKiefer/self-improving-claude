@@ -208,10 +208,102 @@ The short version: don't change the SKILL "because it feels better." Run the eva
 
 ---
 
-## 8. Implications for `self-improving-claude`
+## 8. The optimization loop — treat the prompt as trainable parameters
+
+The earlier sections covered *writing* a prompt. This section is about how a prompt *evolves over time*. The framing: stop treating the skill body as a static document and start treating it as the parameters of a trainable network, where text edits are the gradient steps and the eval score is the loss. The SkillOpt approach (Microsoft Research, 2026) formalizes this; the discipline applies whether you cite the paper or not.
+
+### The ML-analogue mapping
+
+| ML concept | Text-space equivalent |
+|---|---|
+| Parameter | The skill document (`SKILL.md` / `orchestrator-procedure.md`) |
+| Gradient step | One reflection-driven edit informed by an observed failure trajectory |
+| Learning rate | The *edit budget* — how much text is allowed to change per step |
+| Validation set | A held-out fixture subset never touched during iteration |
+| Epoch / batch | Multiple rollouts (N≥2) before the keep/revert decision |
+
+The mapping is not metaphor. Each row corresponds to a concrete artifact in the loop. Where one is missing, the loop is unstable in a predictable way (see §8.1–8.6).
+
+### 8.1 Bounded edits (the textual learning rate)
+
+A full rewrite of a working skill is catastrophic forgetting. The model *will* delete working logic to chase a marginal improvement on the metric in front of it. The fix is structural: cap each iteration to a small number of `add` / `delete` / `replace` edits — SkillOpt's reported sweet spot is 4–8.
+
+**Where we already align:** the prompt-lab loop (May 2026) capped itself at one change per round — even tighter than 4–8. C1, C1′, C2, C3 were each a single localized addition. This is why C1 → C1′ recovery was clean: when C1's sonnet `model` regression was identified, we could attribute it to the specific block added and write a one-sentence fix (the form-discipline guard) without unwinding anything else.
+
+**Implication:** keep the per-round edit cap explicit when launching future loops. If a candidate touches three steps and two references, it's not one candidate — it's three, and they need to be evaluated separately or the score delta is uninterpretable.
+
+### 8.2 Compactness (skill files want to be short)
+
+SkillOpt reports a median successful skill file of ~920 tokens. Long prompts give the illusion of capability but dilute the signal — every additional sentence is more attention budget the model spends parsing instructions rather than executing them.
+
+**Where we DON'T align:** our skill is ~6× SkillOpt's median.
+
+| File | Bytes | Approx tokens |
+|---|---:|---:|
+| `orchestrator-procedure.md` | 23,527 | ~5,500 |
+| `SKILL.md` (preamble + procedure) | 25,249 | ~6,000 |
+| `references/examples.md` | 11,011 | ~2,700 |
+
+Two readings of this gap, both worth holding:
+
+1. **Our task is genuinely more complex** than the median skill in SkillOpt's corpus — multi-form proposal generation with rubric self-critique, sandbox-fired hooks, deterministic stderr discipline, and explicit user approvals. A 920-token skill cannot cover that surface.
+2. **We have real bloat to cut** — Step descriptions that could be tightened, repeated rubric callbacks, examples that are redundant given the procedure already inoculates against the failure mode (cf. the C2 negative-example experiment: rejected because it was redundant with Step 5's skeleton + Step 7's trace + rubric #13).
+
+The honest test: cut a section. If the eval doesn't move, the section was bloat. The C2 round already validated this method.
+
+**Implication:** treat compactness as a measurable axis in the next loop. A round whose only change is a deletion is a legitimate candidate — and if it doesn't regress, it's an improvement (less context budget consumed).
+
+### 8.3 Validation gating: hold a set out, reject ties
+
+Two coupled disciplines:
+
+- **Held-out fixtures.** Some fixtures must never be visible to the iteration loop — they're the validation set. Edits that improve the training subset but regress on held-out are the textual equivalent of overfitting. Without held-out fixtures, every "improvement" is suspect.
+- **Reject ties.** If an edit doesn't strictly improve the score, drop it. The cost of bloat is real (§8.2) and a neutral-effect edit pays that cost for no return.
+
+**Where we already align:** the prompt-lab loop rejected C2 on a strict no-positive-signal rule (sonnet fire −0.17, opus code/model both slightly down — no positive across any model). We also rejected C3 reproducibly on sonnet model regression. The keep/reject discipline is in place.
+
+**Where we DON'T align:** we have no held-out set. All 12 fixtures are visible to every iteration. SkillOpt would predict our adopted edits are partially overfit to the visible set; we cannot disprove this without holding some out.
+
+**Implication for v0.4.x+:** carve a held-out subset (probably 3 of the 12 — one firing, one restraint, one shape-only) that's invisible during iteration and only consulted after a candidate clears the visible set. An edit that wins on visible but ties or regresses on held-out is rejected.
+
+**Expected acceptance rate.** SkillOpt reports 1–4 edits actually clear the gate in a well-run optimization session. Our prompt-lab loop ran 5 candidates (C1, C1-confirm, C1′, C2, C3) and kept 1 (C1′). That's exactly the predicted range. If you find yourself keeping 4 out of 5 candidates, the gate is too lenient or the score noise is too high — probably both.
+
+### 8.4 Slow state vs. fast state — and the protected-section invariant
+
+A skill carries two kinds of memory and they don't mix:
+
+- **Slow state.** Core identity, fundamental rules, procedure steps, rubric criteria. Changes only through deliberate, eval-gated iteration (the SkillOpt loop). Lives in `plugin/skills/_shared/`.
+- **Fast state.** Per-session, per-project context. Changes every invocation. Lives in `preferences.md` (per-project + global), `feedback.jsonl`, `telemetry.jsonl`.
+
+The hazard is structural: a fast-state mechanism that can write into slow-state files will eventually overwrite a hard-won lesson with a one-session preference. The fix is a hardcoded invariant — fast-state writers physically cannot touch slow-state paths.
+
+**Where we already align:** Phase 1+2's preferences mechanism writes only to `${HOME}/.claude/self-improving-claude/preferences.md` and `${CLAUDE_PROJECT_DIR}/.claude/self-improving-claude/preferences.md` — never into `plugin/skills/**`. The `sync_skills.py` generator + pre-commit `--check` enforces the slow-state boundary structurally: any out-of-band edit to a generated skill file fails the pre-commit gate.
+
+**Implication:** when adding new write paths (next-session context capture, learned-pattern persistence), preserve the invariant — fast-state files live under `.claude/self-improving-claude/`, never under `plugin/skills/`. Treat the boundary as a build-time check, not a convention.
+
+### 8.5 Procedural knowledge is the real asset
+
+A well-optimized skill file is more portable than the harness around it. The same optimized procedure can be loaded into Codex, Claude Code, or another agent runtime and reproduce the gains. The corollary: the highest-leverage place to invest is the skill *body*, not framework code around it.
+
+**The small-model meta-strategy.** A small, cheap model paired with a heavily optimized skill file can approach frontier performance on procedural tasks — at a fraction of inference cost. Our prompt-lab data weakly supports this: at C1′, haiku reaches sonnet-class `code` and `install_rate` on several fixtures, though it stays noisier overall. The optimization absorbs the headroom the small model would otherwise lose.
+
+**Implication:** treat the skill file as the product. The Python/eval scaffolding can be rewritten; the orchestrator procedure earned through iteration is what carries the value forward.
+
+### 8.6 The verifier wall
+
+This entire loop runs on an auto-grader. Where the grader is reliable (binary checks on hook shape, deterministic stderr-discipline patterns, "did the hook fire on its trigger envelope") the loop converges. Where the grader is unreliable (subjective rubric scores from an LLM judge with variance ≥ 0.5 per run) the loop chases noise.
+
+This is exactly the boundary VISION.md draws ("binary truth, not taste"). SkillOpt's contribution is naming it as a hard wall, not a soft preference: subjective rubric axes don't just slow the loop, they actively *mislead* it — a candidate that earns +0.5 on a noisy axis and −0.05 on a deterministic one will look like a win, and the loop will keep it.
+
+**Implication:** every new metric we add to the eval should be classified explicitly — deterministic (gating) vs. subjective (advisory). The deterministic ones decide keep/reject. The subjective ones flag candidates for human review but never gate the ratchet on their own. We already do this for `code` (deterministic, gating) vs. `model` (LLM-judge, advisory); the discipline is to keep it that way as the eval grows.
+
+---
+
+## 9. Implications for `self-improving-claude`
 
 1. **Skeleton of the SKILL.md.** The body uses the structure §4 implies: a brief directive opening, then the rubric (§3 guidelines), then the procedure (§3 process steps), then `<examples>`, then placeholders for the runtime-injected `<recent_chat>` / `<project_snapshot>` / `<telemetry_excerpt>` / `<existing_hooks>` / `<user_directive>`.
 2. **The rubric is load-bearing.** Without explicit "what makes a good hook" criteria, the model defaults to plausible-looking but vague proposals. The rubric in §3 is a starter; evolve it via the eval loop.
 3. **Examples cost tokens but earn quality.** Keep the example set tight (3–5), curate carefully, and explain *why* each example is good. Don't pad.
 4. **Imperatives everywhere.** Every line of the SKILL body that asks Claude to do something should start with a verb. No "would it be a good idea to…" type phrasing.
 5. **XML tags are not optional.** Even at small interpolation sizes, the discipline of always wrapping injected data makes the SKILL robust as it grows.
+6. **The skill body is the parameter grid (§8).** Treat each iteration as a gradient step: bounded edits, held-out validation, reject ties, separate slow state from fast state, classify metrics as gating vs. advisory. The loop is only as strong as these disciplines.
