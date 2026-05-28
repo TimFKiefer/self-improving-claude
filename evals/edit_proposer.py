@@ -149,8 +149,8 @@ def parse_proposer_response(raw: str) -> EditProposal:
     Raises ValueError on malformed / out-of-spec output.
     """
     data = _extract_json(raw)
-    required = ("file", "operation", "anchor", "anchor_position", "new_content",
-                "hypothesis", "confidence")
+    # anchor_position is only required for "add"; checked after operation
+    required = ("file", "operation", "anchor", "new_content", "hypothesis", "confidence")
     missing = [f for f in required if f not in data]
     if missing:
         raise ValueError(f"missing fields: {missing}")
@@ -158,8 +158,16 @@ def parse_proposer_response(raw: str) -> EditProposal:
         raise ValueError(f"file not in allowlist: {data['file']}")
     if data["operation"] not in ALLOWED_OPERATIONS:
         raise ValueError(f"invalid operation: {data['operation']}")
-    if data["anchor_position"] not in ALLOWED_ANCHOR_POSITIONS:
-        raise ValueError(f"invalid anchor_position: {data['anchor_position']}")
+    if data["operation"] == "add":
+        if data.get("anchor_position") not in ALLOWED_ANCHOR_POSITIONS:
+            raise ValueError(
+                f"add requires anchor_position before|after, got: {data.get('anchor_position')!r}"
+            )
+    else:
+        # delete/replace ignore anchor_position; default to 'before' for the dataclass
+        data.setdefault("anchor_position", "before")
+        if data.get("anchor_position") is None:
+            data["anchor_position"] = "before"
     if not isinstance(data["confidence"], int) or not (1 <= data["confidence"] <= 10):
         raise ValueError(f"confidence must be int 1-10, got: {data['confidence']!r}")
     if not isinstance(data["anchor"], str) or not data["anchor"]:

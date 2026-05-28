@@ -13,7 +13,9 @@ import json
 from pathlib import Path
 
 REQUIRED_FIELDS = ("i", "ts", "fixture", "edit", "hypothesis", "confidence",
-                   "scores_before", "scores_after", "decision", "commit_sha")
+                   "scores_before", "scores_after",
+                   "scores_holdout_before", "scores_holdout_after",
+                   "decision", "commit_sha")
 REJECTION_PREFIX = "rejected"
 
 

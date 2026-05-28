@@ -171,3 +171,87 @@ def test_pick_target_tolerates_none_install_rate():
         {"id": "b", "code_max": 3.0, "install_rate": None},     # composite 3
     ]}
     assert pick_target(visible_baseline, None) == "b"
+
+
+# ----- β: pick_target rotation tests ---------------------------------------
+
+def test_pick_target_rotation_avoids_recent_picks():
+    visible_baseline = {"entries": [
+        {"id": "low",  "code_max": 3.0, "install_rate": 0.0},   # composite 3 (bottom 1)
+        {"id": "mid",  "code_max": 5.0, "install_rate": 0.5},   # composite 10 (bottom 2)
+        {"id": "high", "code_max": 7.0, "install_rate": 0.5},   # composite 12 (bottom 3)
+        {"id": "top",  "code_max": 9.0, "install_rate": 1.0},   # composite 19 (outside bottom-3)
+    ]}
+    # Without recent_picks, picks the lowest
+    assert pick_target(visible_baseline, None, recent_picks=[]) == "low"
+    # With "low" recently picked, picks the next
+    assert pick_target(visible_baseline, None, recent_picks=["low"]) == "mid"
+    # With "low" and "mid" recently picked, picks the third in bottom-3
+    assert pick_target(visible_baseline, None, recent_picks=["low", "mid"]) == "high"
+
+
+def test_pick_target_rotation_falls_back_when_all_bottom_picked():
+    visible_baseline = {"entries": [
+        {"id": "a", "code_max": 3.0, "install_rate": 0.0},
+        {"id": "b", "code_max": 5.0, "install_rate": 0.5},
+        {"id": "c", "code_max": 7.0, "install_rate": 0.5},
+        {"id": "d", "code_max": 9.0, "install_rate": 1.0},
+    ]}
+    # All bottom-3 (a, b, c) picked in the last 2 → only look at last 2
+    # recent_picks[-2:] = ["b", "c"] — so "a" is fresh
+    assert pick_target(visible_baseline, None, recent_picks=["a", "b", "c"]) == "a"
+
+
+def test_pick_target_rotation_respects_bottom_n_parameter():
+    visible_baseline = {"entries": [
+        {"id": f"f{i}", "code_max": float(i), "install_rate": 0.0} for i in range(5)
+    ]}
+    # Default bottom_n=3 → bottom 3 are f0, f1, f2
+    assert pick_target(visible_baseline, None, recent_picks=[]) == "f0"
+    # bottom_n=2 → only f0 and f1 in pool
+    assert pick_target(visible_baseline, None, recent_picks=["f0"], rotate_bottom_n=2) == "f1"
+
+
+def test_pick_target_target_fixture_overrides_rotation():
+    """β: explicit --target-fixture preserves α behavior."""
+    visible_baseline = {"entries": [
+        {"id": "low",  "code_max": 3.0, "install_rate": 0.0},
+        {"id": "high", "code_max": 9.0, "install_rate": 1.0},
+    ]}
+    assert pick_target(visible_baseline, "high", recent_picks=["high"]) == "high"
+
+
+# ----- β: is_saturated tests -----------------------------------------------
+
+from evals.auto_loop import is_saturated
+
+
+def test_is_saturated_true_when_all_metrics_max():
+    assert is_saturated({"average_code": 10.0, "install_rate": 1.0,
+                         "fire_rate": None, "average_restraint": None}) is True
+
+
+def test_is_saturated_false_when_code_below_max():
+    assert is_saturated({"average_code": 8.5, "install_rate": 1.0,
+                         "fire_rate": None, "average_restraint": None}) is False
+
+
+def test_is_saturated_false_when_install_below_max():
+    assert is_saturated({"average_code": 10.0, "install_rate": 0.9,
+                         "fire_rate": None, "average_restraint": None}) is False
+
+
+def test_is_saturated_true_for_restraint_only_fixture():
+    """A restraint fixture has None code/install but maxed restraint."""
+    assert is_saturated({"average_code": None, "install_rate": None,
+                         "fire_rate": None, "average_restraint": 10.0}) is True
+
+
+def test_is_saturated_tolerates_floating_point_near_max():
+    assert is_saturated({"average_code": 10.0 - 1e-9, "install_rate": 1.0,
+                         "fire_rate": None, "average_restraint": None}) is True
+
+
+def test_is_saturated_false_when_restraint_below_max_and_others_unset():
+    assert is_saturated({"average_code": None, "install_rate": None,
+                         "fire_rate": None, "average_restraint": 5.0}) is False

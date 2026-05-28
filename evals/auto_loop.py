@@ -90,9 +90,13 @@ def apply_edit(edit: dict, repo_root: Path = REPO_ROOT) -> tuple[bool, str]:
 # Driver helpers
 # ---------------------------------------------------------------------------
 
-def pick_target(visible_baseline: dict, target_fixture: str | None) -> str:
-    """For α: if target_fixture is set, always return it. Otherwise pick the
-    lowest-composite-score fixture in the visible baseline."""
+def pick_target(visible_baseline: dict, target_fixture: str | None,
+                recent_picks: list[str] | None = None,
+                rotate_bottom_n: int = 3) -> str:
+    """If target_fixture is set, always return it (α fixed-target mode).
+    Otherwise (β rotation): pick the lowest-composite-score visible fixture
+    among the bottom-N, skipping any picked in the last 2 iterations.
+    """
     if target_fixture:
         return target_fixture
     entries = visible_baseline.get("entries", [])
@@ -101,7 +105,29 @@ def pick_target(visible_baseline: dict, target_fixture: str | None) -> str:
 
     def composite(e):
         return (e.get("code_max", 0.0) or 0.0) + (e.get("install_rate", 0.0) or 0.0) * 10
-    return sorted(entries, key=composite)[0]["id"]
+    bottom = sorted(entries, key=composite)[:rotate_bottom_n]
+    avoid = set((recent_picks or [])[-2:])
+    fresh = [e for e in bottom if e["id"] not in avoid]
+    if not fresh:  # all bottom-N picked recently — fall back to oldest of them
+        fresh = bottom
+    return fresh[0]["id"]
+
+
+def is_saturated(summary: dict) -> bool:
+    """True iff all applicable gating metrics are at their ceiling.
+
+    None means "not applicable for this fixture" (e.g. fire_rate is None for a
+    permissions-only fixture); only None-or-max counts as saturated.
+    """
+    code = summary.get("average_code")
+    install = summary.get("install_rate")
+    fire = summary.get("fire_rate")
+    restraint = summary.get("average_restraint")
+    EPS = 1e-6
+    return ((code is None or code >= 10.0 - EPS)
+            and (install is None or install >= 1.0 - EPS)
+            and (fire is None or fire >= 1.0 - EPS)
+            and (restraint is None or restraint >= 10.0 - EPS))
 
 
 def git_reset_sync_paths(repo_root: Path = REPO_ROOT) -> None:
@@ -153,6 +179,32 @@ def run_single_fixture_eval(target_id: str, skill_model: str, judge_model: str) 
     return _aggregate_sandbox([result])
 
 
+def _run_eval_over(filter_predicate, skill_model: str, judge_model: str) -> tuple[dict, list[dict]]:
+    """Run sandbox eval over every dataset entry matching the predicate.
+    Returns (aggregated_summary, raw_per_entry_results)."""
+    from evals.fixtures_lib import load_dataset
+    from evals.run import run_one_entry_sandbox, _aggregate_sandbox
+    from evals.client_claude_cli import ClaudeCliClient
+    entries = [e for e in load_dataset() if filter_predicate(e)]
+    grader_client = ClaudeCliClient()
+    results = []
+    for entry in entries:
+        results.append(run_one_entry_sandbox(
+            entry, model=skill_model, grader_client=grader_client, judge_model=judge_model,
+        ))
+    return _aggregate_sandbox(results), results
+
+
+def run_visible_eval(skill_model: str, judge_model: str) -> tuple[dict, list[dict]]:
+    """Run the eval over visible-only entries (NOT holdout). β baseline + after-edit gate."""
+    return _run_eval_over(lambda e: not e.get("holdout"), skill_model, judge_model)
+
+
+def run_holdout_eval(skill_model: str, judge_model: str) -> tuple[dict, list[dict]]:
+    """Run the eval over holdout-only entries. β confirmation gate."""
+    return _run_eval_over(lambda e: bool(e.get("holdout")), skill_model, judge_model)
+
+
 def _fixture_failure_from_baseline(target_id: str, baseline: dict, dataset_entry: dict,
                                     last_eval_result: dict) -> dict:
     """Package what the edit-proposer needs to see about a failing fixture."""
@@ -190,19 +242,25 @@ def _run_eval_and_extract_result(target_id: str, skill_model: str, judge_model: 
 
 
 def run_iteration(*, i: int, target_id: str, baseline: dict, last_result: dict,
+                  holdout_baseline: dict | None,
                   procedure: str, rubric: str, audit, client, proposer_model: str,
-                  skill_model: str, judge_model: str, dry_run: bool = False
-                  ) -> tuple[dict, dict | None]:
-    """Run one auto-loop iteration. Returns (new_baseline, new_result) on keep,
-    or (baseline, last_result) on reject. Always writes an audit record."""
+                  skill_model: str, judge_model: str, dry_run: bool = False,
+                  holdout_gate_enabled: bool = True,
+                  ) -> tuple[dict, dict | None, dict | None]:
+    """Run one auto-loop iteration. Returns (new_baseline, new_result, new_holdout).
+
+    β additions on top of α:
+    - Saturation pre-check: skip the iteration if baseline is at ceiling.
+    - Held-out gate (when holdout_gate_enabled): after visible strictly_better,
+      run the held-out eval; on regresses(), revert instead of commit.
+    """
     from evals.fixtures_lib import load_dataset
     from evals.edit_proposer import propose_edit
+    from evals.ratchet import strictly_better, regresses
 
     ts = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     entries = load_dataset()
     dataset_entry = next(e for e in entries if e["id"] == target_id)
-    fixture_failure = _fixture_failure_from_baseline(target_id, baseline,
-                                                     dataset_entry, last_result)
     history = audit.last_n_rejected_edits(5)
 
     record = {
@@ -210,9 +268,20 @@ def run_iteration(*, i: int, target_id: str, baseline: dict, last_result: dict,
         "edit": {}, "hypothesis": "", "confidence": 0,
         "scores_before": dict(baseline),
         "scores_after": None,
+        "scores_holdout_before": dict(holdout_baseline) if holdout_baseline else None,
+        "scores_holdout_after": None,
         "decision": "rejected: invalid_edit",
         "commit_sha": None,
     }
+
+    # β: saturation pre-check — skip if the target is already maxed
+    if is_saturated(baseline):
+        record["decision"] = "skipped: saturated_baseline"
+        audit.write_iteration(record)
+        return baseline, last_result, holdout_baseline
+
+    fixture_failure = _fixture_failure_from_baseline(target_id, baseline,
+                                                     dataset_entry, last_result)
 
     # 1. Propose the edit
     try:
@@ -224,12 +293,12 @@ def run_iteration(*, i: int, target_id: str, baseline: dict, last_result: dict,
         record["edit"] = {"error": str(e)[:200]}
         record["decision"] = f"rejected: invalid_edit ({type(e).__name__})"
         audit.write_iteration(record)
-        return baseline, last_result
+        return baseline, last_result, holdout_baseline
 
     if proposal is None:
         record["decision"] = "rejected: low_confidence"
         audit.write_iteration(record)
-        return baseline, last_result
+        return baseline, last_result, holdout_baseline
 
     record["edit"] = proposal.to_edit_dict()
     record["hypothesis"] = proposal.hypothesis
@@ -238,14 +307,14 @@ def run_iteration(*, i: int, target_id: str, baseline: dict, last_result: dict,
     if dry_run:
         record["decision"] = "dry_run (proposed only)"
         audit.write_iteration(record)
-        return baseline, last_result
+        return baseline, last_result, holdout_baseline
 
     # 2. Apply the edit
     ok, reason = apply_edit(proposal.to_edit_dict())
     if not ok:
         record["decision"] = f"rejected: invalid_edit ({reason})"
         audit.write_iteration(record)
-        return baseline, last_result
+        return baseline, last_result, holdout_baseline
 
     # 3. Regenerate via sync_skills.py
     sync_ok, sync_msg = run_sync_skills()
@@ -253,34 +322,55 @@ def run_iteration(*, i: int, target_id: str, baseline: dict, last_result: dict,
         git_reset_sync_paths()
         record["decision"] = f"rejected: sync_failed ({sync_msg})"
         audit.write_iteration(record)
-        return baseline, last_result
+        return baseline, last_result, holdout_baseline
 
-    # 4. Run the eval on the same target fixture
+    # 4. Run the visible eval on the same target fixture
     try:
         new_baseline, new_result = _run_eval_and_extract_result(target_id, skill_model, judge_model)
     except Exception as e:
         git_reset_sync_paths()
         record["decision"] = f"rejected: eval_failed ({type(e).__name__}: {str(e)[:100]})"
         audit.write_iteration(record)
-        return baseline, last_result
+        return baseline, last_result, holdout_baseline
 
     record["scores_after"] = dict(new_baseline)
 
-    # 5. Ratchet — strictly_better on visible-only (α scope; β adds held-out gate)
-    from evals.ratchet import strictly_better
-    if strictly_better(new_baseline, baseline):
-        sha = git_commit_iteration(
-            f"auto-loop[i={i}]: {proposal.hypothesis[:80]}",
-        )
-        record["decision"] = "kept"
-        record["commit_sha"] = sha
-        audit.write_iteration(record)
-        return new_baseline, new_result
-    else:
+    # 5. Visible ratchet
+    if not strictly_better(new_baseline, baseline):
         git_reset_sync_paths()
         record["decision"] = "rejected: no_visible_gain"
         audit.write_iteration(record)
-        return baseline, last_result
+        return baseline, last_result, holdout_baseline
+
+    # 6. β: held-out confirmation gate
+    if holdout_gate_enabled and holdout_baseline is not None:
+        try:
+            new_holdout, _ = run_holdout_eval(skill_model, judge_model)
+        except Exception as e:
+            git_reset_sync_paths()
+            record["decision"] = f"rejected: holdout_eval_failed ({type(e).__name__})"
+            audit.write_iteration(record)
+            return baseline, last_result, holdout_baseline
+
+        record["scores_holdout_after"] = dict(new_holdout)
+        if regresses(new_holdout, holdout_baseline):
+            git_reset_sync_paths()
+            record["decision"] = "rejected: holdout_regression"
+            audit.write_iteration(record)
+            return baseline, last_result, holdout_baseline
+        # Held-out passed; commit
+        sha = git_commit_iteration(f"auto-loop[i={i}]: {proposal.hypothesis[:80]}")
+        record["decision"] = "kept"
+        record["commit_sha"] = sha
+        audit.write_iteration(record)
+        return new_baseline, new_result, new_holdout
+
+    # 7. Held-out gate disabled — α-compatibility path
+    sha = git_commit_iteration(f"auto-loop[i={i}]: {proposal.hypothesis[:80]}")
+    record["decision"] = "kept"
+    record["commit_sha"] = sha
+    audit.write_iteration(record)
+    return new_baseline, new_result, holdout_baseline
 
 
 # ---------------------------------------------------------------------------
@@ -304,9 +394,13 @@ def _check_clean_tree() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="evals.auto_loop",
-                                     description="v0.5.0-α auto-loop driver")
-    parser.add_argument("--max-iterations", type=int, default=5)
-    parser.add_argument("--target-fixture", default="010-block-staging-fetch")
+                                     description="v0.5.0 auto-loop driver (β: held-out gate + rotation)")
+    parser.add_argument("--max-iterations", type=int, default=20,
+                        help="max iterations (default 20 for β; 5 for α-compat)")
+    parser.add_argument("--target-fixture", default=None,
+                        help="lock to one fixture (α mode). Default None → rotate over bottom-N visible.")
+    parser.add_argument("--rotate-bottom-n", type=int, default=3,
+                        help="rotation pool size for --target-fixture=None (default 3)")
     parser.add_argument("--proposer", default="claude-sonnet-4-5",
                         help="model used to propose edits to the skill body")
     parser.add_argument("--skill-runner", default="claude-sonnet-4-5",
@@ -315,6 +409,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="model used for the LLM-judge advisory score")
     parser.add_argument("--dry-run", action="store_true",
                         help="propose edits but do not apply or commit")
+    parser.add_argument("--no-holdout-gate", action="store_true",
+                        help="(α-compat) disable the held-out confirmation gate")
     args = parser.parse_args(argv)
 
     _check_clean_tree()
@@ -327,14 +423,18 @@ def main(argv: list[str] | None = None) -> int:
     audit = AuditLog(audit_root, config={
         "max_iterations": args.max_iterations,
         "target_fixture": args.target_fixture,
+        "rotate_bottom_n": args.rotate_bottom_n,
         "proposer": args.proposer,
         "skill_runner": args.skill_runner,
         "judge": args.judge,
         "dry_run": args.dry_run,
+        "holdout_gate_enabled": not args.no_holdout_gate,
         "start_ts": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }, proposer_short=args.proposer.split("-")[1] if "-" in args.proposer else args.proposer)
 
-    print(f"Auto-loop α — target={args.target_fixture} proposer={args.proposer} "
+    mode = "rotation" if args.target_fixture is None else f"fixed:{args.target_fixture}"
+    gate = "on" if not args.no_holdout_gate else "OFF"
+    print(f"Auto-loop β — mode={mode} holdout-gate={gate} proposer={args.proposer} "
           f"skill-runner={args.skill_runner} judge={args.judge} max-iter={args.max_iterations}",
           file=sys.stderr)
     print(f"Audit dir: {audit.dir}", file=sys.stderr)
@@ -343,51 +443,95 @@ def main(argv: list[str] | None = None) -> int:
     procedure, rubric = _read_slow_state()
 
     # SIGINT handler — write summary and exit cleanly
-    state = {"baseline": None, "last_result": None, "iteration": 0}
+    state = {"baseline": None, "last_result": None, "holdout_baseline": None,
+             "iteration": 0, "recent_picks": [], "kept": 0,
+             "visible_baseline": None, "original_visible": None,
+             "original_holdout": None}
 
     def _on_sigint(signum, frame):
         print("\n[SIGINT] writing audit summary and exiting cleanly", file=sys.stderr)
         if state["baseline"] is not None:
-            audit.write_summary(kept=0, total=state["iteration"],
-                                baseline=state["baseline"], final=state["baseline"])
+            audit.write_summary(kept=state["kept"], total=state["iteration"],
+                                baseline=state["original_visible"] or state["baseline"],
+                                final=state["baseline"])
         sys.exit(130)
     signal.signal(signal.SIGINT, _on_sigint)
 
-    # Initial baseline
-    print(f"[baseline] running single-fixture eval on {args.target_fixture}...", file=sys.stderr)
-    initial_baseline, initial_result = _run_eval_and_extract_result(
-        args.target_fixture, args.skill_runner, args.judge,
-    )
-    state["baseline"] = initial_baseline
-    state["last_result"] = initial_result
-    original_baseline = dict(initial_baseline)
-    print(f"[baseline] {initial_baseline}", file=sys.stderr)
+    # Initial baselines
+    if args.target_fixture is None:
+        print("[baseline] running visible-9 eval (for rotation picking)...", file=sys.stderr)
+        visible_baseline, _ = run_visible_eval(args.skill_runner, args.judge)
+        state["visible_baseline"] = visible_baseline
+        state["original_visible"] = dict(visible_baseline)
+        print(f"[baseline] visible: code={visible_baseline.get('average_code'):.2f} "
+              f"install={visible_baseline.get('install_rate')} "
+              f"restraint={visible_baseline.get('average_restraint')}", file=sys.stderr)
+    else:
+        print(f"[baseline] α-mode (fixed fixture {args.target_fixture})", file=sys.stderr)
 
-    kept = 0
+    if not args.no_holdout_gate:
+        print("[baseline] running held-out-3 eval (for gate)...", file=sys.stderr)
+        holdout_baseline, _ = run_holdout_eval(args.skill_runner, args.judge)
+        state["holdout_baseline"] = holdout_baseline
+        state["original_holdout"] = dict(holdout_baseline)
+        print(f"[baseline] holdout: code={holdout_baseline.get('average_code')} "
+              f"install={holdout_baseline.get('install_rate')} "
+              f"restraint={holdout_baseline.get('average_restraint')}", file=sys.stderr)
+
     for i in range(1, args.max_iterations + 1):
         state["iteration"] = i
-        print(f"\n[iter {i}/{args.max_iterations}] proposing edit...", file=sys.stderr)
-        new_baseline, new_result = run_iteration(
-            i=i, target_id=args.target_fixture,
+        target_id = pick_target(
+            state["visible_baseline"] or {"entries": [{"id": args.target_fixture or "?",
+                                                       "code_max": 0, "install_rate": 0}]},
+            args.target_fixture,
+            state["recent_picks"], args.rotate_bottom_n,
+        )
+        print(f"\n[iter {i}/{args.max_iterations}] target={target_id} proposing edit...",
+              file=sys.stderr)
+
+        # Per-iteration target baseline = single-fixture (cheap; aligns with α)
+        if state["baseline"] is None or target_id != state.get("baseline_target"):
+            print(f"[iter {i}] running single-fixture target baseline...", file=sys.stderr)
+            target_baseline, target_result = _run_eval_and_extract_result(
+                target_id, args.skill_runner, args.judge,
+            )
+            state["baseline"] = target_baseline
+            state["last_result"] = target_result
+            state["baseline_target"] = target_id
+
+        new_baseline, new_result, new_holdout = run_iteration(
+            i=i, target_id=target_id,
             baseline=state["baseline"], last_result=state["last_result"],
+            holdout_baseline=state["holdout_baseline"],
             procedure=procedure, rubric=rubric, audit=audit,
             client=proposer_client, proposer_model=args.proposer,
             skill_model=args.skill_runner, judge_model=args.judge,
             dry_run=args.dry_run,
+            holdout_gate_enabled=not args.no_holdout_gate,
         )
+        state["recent_picks"].append(target_id)
         if new_baseline is not state["baseline"]:
-            kept += 1
-            print(f"[iter {i}] KEPT — new baseline: {new_baseline}", file=sys.stderr)
-            # Re-read slow state since the kept edit changed it
+            state["kept"] += 1
+            print(f"[iter {i}] KEPT — target {target_id} code "
+                  f"{state['baseline'].get('average_code'):.2f} → "
+                  f"{new_baseline.get('average_code'):.2f}", file=sys.stderr)
             procedure, rubric = _read_slow_state()
+            state["holdout_baseline"] = new_holdout  # update to post-edit holdout
+            # Invalidate target baseline so next pick re-evals
+            state["baseline_target"] = None
         else:
             print(f"[iter {i}] rejected", file=sys.stderr)
         state["baseline"] = new_baseline
         state["last_result"] = new_result
 
-    audit.write_summary(kept=kept, total=args.max_iterations,
-                        baseline=original_baseline, final=state["baseline"])
-    print(f"\nDone. Kept {kept}/{args.max_iterations}. Audit: {audit.dir}", file=sys.stderr)
+    final_summary = state["visible_baseline"] or state["baseline"] or {}
+    audit.write_summary(
+        kept=state["kept"], total=args.max_iterations,
+        baseline=state["original_visible"] or state["original_holdout"] or {},
+        final=final_summary,
+    )
+    print(f"\nDone. Kept {state['kept']}/{args.max_iterations}. "
+          f"Audit: {audit.dir}", file=sys.stderr)
     return 0
 
 

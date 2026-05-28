@@ -130,6 +130,44 @@ def test_parse_rejects_empty_anchor():
         parse_proposer_response(json.dumps(data))
 
 
+# β: anchor_position is only required for add (α anomaly fix)
+def test_parse_accepts_delete_with_null_anchor_position():
+    data = _valid_response()
+    data["operation"] = "delete"
+    data["anchor_position"] = None
+    data["new_content"] = ""
+    p = parse_proposer_response(json.dumps(data))
+    assert p.operation == "delete"
+    # anchor_position defaulted to 'before' (ignored for delete)
+    assert p.anchor_position == "before"
+
+
+def test_parse_accepts_replace_with_missing_anchor_position():
+    data = _valid_response()
+    data["operation"] = "replace"
+    del data["anchor_position"]
+    p = parse_proposer_response(json.dumps(data))
+    assert p.operation == "replace"
+    assert p.anchor_position == "before"  # defaulted
+
+
+def test_parse_still_rejects_add_with_invalid_anchor_position():
+    data = _valid_response()
+    data["operation"] = "add"
+    data["anchor_position"] = "inside"
+    with pytest.raises(ValueError, match="anchor_position"):
+        parse_proposer_response(json.dumps(data))
+
+
+def test_parse_still_rejects_add_with_null_anchor_position():
+    """β: this is the exact α run-1 i=4 anomaly."""
+    data = _valid_response()
+    data["operation"] = "add"
+    data["anchor_position"] = None
+    with pytest.raises(ValueError, match="anchor_position"):
+        parse_proposer_response(json.dumps(data))
+
+
 class _FakeClient:
     def __init__(self, response_text):
         self._response_text = response_text

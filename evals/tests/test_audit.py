@@ -16,6 +16,8 @@ def _record(i=1, decision="kept"):
         "confidence": 7,
         "scores_before": {"average_code": 7.0},
         "scores_after": {"average_code": 7.5},
+        "scores_holdout_before": None,
+        "scores_holdout_after": None,
         "decision": decision,
         "commit_sha": "abc1234" if decision == "kept" else None,
     }
