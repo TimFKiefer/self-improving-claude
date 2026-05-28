@@ -156,7 +156,7 @@ If you're genuinely on the fence between two forms for the same candidate (typic
 The rubric in `<rubric>` is the contract for what makes a proposal shippable. The proposal must:
 
 - target a specific observed behavior, not a hypothetical
-- bind to one event with a precise matcher (hooks only — permissions rules have NO event/matcher, just a rule string)
+- bind to one event with a precise matcher
 - be small (≤ 60 LOC for scripts; one line for permissions rules)
 - carry a `"name": "self-improving-claude/<slug>"` sentinel for later findability
 - use portable paths (`${CLAUDE_PROJECT_DIR}` for project hooks, `${CLAUDE_PLUGIN_ROOT}` for plugin-shipped scripts)
