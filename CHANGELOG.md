@@ -2,6 +2,65 @@
 
 All notable changes to `self-improving-claude` are documented here.
 
+## [Unreleased] — v0.5.0 progress
+
+### Added (v0.5.0-α)
+
+#### The auto-loop, end-to-end
+- **`evals/auto_loop.py`** — CLI driver: `python3 -m evals.auto_loop`. Runs `propose → apply → sync_skills → single-fixture eval → ratchet → git commit-or-reset` per iteration. Single target fixture (α scope); β adds bottom-3 rotation. SIGINT-safe summary writer. Pre-flight cleanliness check refuses to start with dirty slow-state files.
+- **`evals/edit_proposer.py`** — bounded-edit proposer using Claude CLI (subscription OAuth). Anchor-based edits (operation ∈ {add, delete, replace}; anchor must appear exactly once; `new_content` ≤ 8 lines per SkillOpt §8.1 edit-budget). Strict JSON validation against an allowlist; short-circuits on `confidence < 4`.
+- **`evals/ratchet.py`** — pure score-comparison. `strictly_better` rejects ties per SkillOpt §8.3. `regresses` for β's held-out gate. Gating metrics: `average_code` (ε=0.05), `install_rate` (ε=0), `fire_rate` (ε=0.05), `average_restraint` (ε=0). LLM-judge `average_model` is advisory, never gating (§8.6 verifier wall).
+- **`evals/audit.py`** — JSONL audit log per run at `prompt-lab/auto-runs/<timestamp>-<proposer>/` (gitignored). Schema-validated iteration records; `last_n_rejected_edits` feeds the proposer so it doesn't retry bad ideas.
+- **+50 tests** across 4 new test files. Total: **223 passing** (was 173 at v0.4.1).
+
+#### Two smoke tests validated both ratchet paths
+
+**Run 1 — sonnet skill-runner, fixture 010, 5 iterations, 0 kept.** Sonnet already handles fixture 010 at code 10.0 / install 1.0 — no headroom. The proposer made adaptive hypotheses (i=1 in Step 7 → i=2 re-aimed to Step 4 after rejection — exactly the design intent), but couldn't find a real gap. **Validated the reject path under "no headroom" conditions.** Plus surfaced two minor anomalies for β (see below).
+
+**Run 2 — haiku skill-runner, fixture 010, 5 iterations, 2 kept.** Haiku's baseline was code 6.67 / install 1.0 with real headroom. The auto-loop discovered two genuine improvements **before reverting** (see held-out finding below):
+- `auto-loop[i=2]` (commit `d712ba6`): clarified the rubric's "bind to one event with precise matcher" applies to **hooks only**, not permissions rules.
+- `auto-loop[i=5]` (commit `cfa2ade`): added a "Classify first" preamble to Step 4 distinguishing parameter-pattern rules (→ `permissions.deny`/`ask`) from computational rules (→ hooks).
+
+**The textbook ratchet decision:** `i=4` proposed a different edit reaching the same target code score (7.14→10.0, huge gain) BUT crashed install (1.0→0.0). `strictly_better` correctly rejected. `i=5` then found the same intent expressed differently, preserving install — accepted. **SkillOpt §8.3 doing exactly what it was specced for.**
+
+**Visible (target-fixture) result for run 2: code 6.67 → 10.0 over 5 iterations.** Already past one of v0.5.0's exit criteria (≥ 1.5-point gain on at least one fixture).
+
+#### α's load-bearing finding: held-out gate is essential
+
+Post-run-2 manual held-out check (haiku, fixtures 002 / 008 / 012):
+
+| metric | pre-auto-loop (v0.4.1 retroactive) | post-auto-loop held-out | Δ |
+|---|---:|---:|---:|
+| code | 7.62 | **9.00** | **+1.38** |
+| model | 6.50 | **8.50** | **+2.00** |
+| install | **1.00** | **0.50** | **−0.50** ❌ |
+
+Per-fixture: **008-secret-in-source install dropped from 1.0 to 0.0.** The "classify first" edit (i=5) optimized fixture 010 (where `permissions.deny` is right) but caused haiku to misclassify 008 (where `command-hook` is right — the rule is content-scanning, not parameter-pattern). **Textbook overfitting** — exactly the failure mode β's held-out gate is designed to prevent.
+
+**Decision:** **reverted both auto-loop commits** (`5b0d4f0` reverts `d712ba6`, `6de82c3` reverts `cfa2ade`). The kept-edit history stays in git log as evidence the loop works mechanically; the reverts keep main clean of un-gated edits. **β implements `regresses(new_holdout, old_holdout)` as a hard reject before any `git commit` happens** — exactly this scenario would have been auto-rejected.
+
+#### Minor anomalies caught by the audit log (β backlog)
+- Run-1 `i=4` proposer response had `anchor_position: null` for a non-`add` operation. Strict validation in `parse_proposer_response` correctly rejected (decision: `invalid_edit (ValueError)`). β fix: only require valid `anchor_position` when `operation == "add"`.
+- Sonnet ceiling case (Run 1) showed the proposer hallucinated a "WebFetch URL parsing problem" that doesn't exist for sonnet. Mitigation in β: rotation over bottom-3 fixtures + early-stop when baseline saturates on all metrics.
+
+#### Audit artifacts (local, gitignored)
+- `prompt-lab/auto-runs/2026-05-28T155620Z-sonnet/` (run 1: 5 reject)
+- `prompt-lab/auto-runs/2026-05-28T161246Z-sonnet/` (run 2: 2 keep + 3 reject — captures the full overfit-then-revert story in iterations.jsonl)
+
+### Why this matters
+α is the *smallest viable* cut of the auto-loop and it ran end-to-end on real fixtures. It proved:
+1. The loop **mechanics work** — propose, apply, sync, eval, ratchet, audit all wired together.
+2. The proposer is **adaptive** — Run 1's i=1→i=2 re-aim after rejection.
+3. The ratchet **catches multi-metric trade-offs** — Run 2's i=4 rejection for install regression.
+4. The loop **can discover real improvements** — Run 2's i=2 and i=5 made genuinely useful edits (now reverted but the audit log preserves them).
+5. **Without a held-out gate, the loop overfits** — Run 2's improvements broke fixture 008's install in the held-out check.
+
+(5) is the critical lesson α delivers to β. v0.5.0-β: implement the held-out gate per spec §4.1, then re-run this exact experiment and watch the gate auto-reject what we had to revert by hand.
+
+### Notes
+- α has no held-out gate, no rotation, no cost cap — those land in β / v0.5.0 per spec.
+- v0.5.0 tag awaits β + 50-iteration validation run.
+
 ## [0.4.1] — 2026-05-28
 
 ### Added
