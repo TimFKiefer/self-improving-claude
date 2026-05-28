@@ -61,6 +61,58 @@ Per-fixture: **008-secret-in-source install dropped from 1.0 to 0.0.** The "clas
 - α has no held-out gate, no rotation, no cost cap — those land in β / v0.5.0 per spec.
 - v0.5.0 tag awaits β + 50-iteration validation run.
 
+### Added (v0.5.0-β)
+
+#### Held-out confirmation gate, rotation, saturation pre-check, α anomaly fix
+- **`evals/auto_loop.py:run_iteration`** — gained `holdout_baseline` parameter and `holdout_gate_enabled` flag. After visible-set `strictly_better`, runs the held-out eval; on `regresses()` → True, `git checkout HEAD --` instead of `git commit`. The exact scenario α had to revert by hand is now auto-detected and auto-rejected.
+- **`evals/auto_loop.py:pick_target`** — now rotates over the bottom-N (default 3) lowest-composite-score visible fixtures, skipping any in the last 2 picks. `--target-fixture` preserves α single-fixture mode.
+- **`evals/auto_loop.py:is_saturated`** — short-circuits iterations where the target's baseline is at the ceiling on all gating metrics (decision: `skipped: saturated_baseline`). No proposer + eval cost wasted.
+- **`evals/edit_proposer.py:parse_proposer_response`** — `anchor_position` is only required for `operation == "add"` (α anomaly fix).
+- **`evals/audit.py:REQUIRED_FIELDS`** — schema extended with `scores_holdout_before`/`scores_holdout_after` (can be None when held-out wasn't run).
+- **New CLI flags**: `--rotate-bottom-n` (default 3), `--no-holdout-gate` (α-compat override), `--max-iterations` default 5 → 20. `--target-fixture` becomes optional (None → rotation).
+- **+14 tests** (237 passing total, was 223 at α).
+
+#### 20-iteration β validation run — exit criteria met
+
+Run config: rotation mode, sonnet 4.5 proposer, haiku skill-runner, opus judge.
+
+**Decision breakdown (20 iterations):**
+
+| count | decision |
+|---:|---|
+| 9 | `rejected: holdout_regression` ← **the gate fired 9 times** |
+| 7 | `rejected: no_visible_gain` |
+| 2 | `rejected: invalid_edit (anchor not found)` |
+| 1 | `kept` ← the one that earned a commit |
+| 1 | `skipped: saturated_baseline` |
+
+5% keep rate — within SkillOpt's predicted 1–4 edits per cycle range exactly.
+
+**Rotation worked:** 3 distinct targets visited (`007-git-push-warn` ×7, `004-recursion-prevention` ×7, `010-block-staging-fetch` ×6).
+
+**The textbook β save — iter 1 on fixture 007:**
+- Hypothesis: map "confirmation language" → `permissions.ask`
+- Visible (target 007): code 5.0 → 6.67 ✅ (improvement, would have been kept under α)
+- Held-out aggregate: code 10.0 → **8.33** ❌ (regression caught)
+- **Decision: `rejected: holdout_regression`**
+- In α, this would have been committed. In β, the gate auto-rejected it.
+
+**The kept edit — iter 15 on fixture 010 (commit `fc8e57d`):**
+Removed the phrase "uniformly across tools" from form-1 (`permissions.deny`) — the phrase was misleading because `permissions.deny` can legitimately target single-tool patterns. The clarified text is semantically tighter. **Eval-validated AND held-out-validated.** This commit stays on main — the first auto-loop deliverable to survive the gate.
+
+### Why β matters
+
+β is the smallest configuration that satisfies the SkillOpt §8.3 discipline end-to-end:
+1. **Strict-better visible gate** ensures the loop doesn't ratchet ties.
+2. **Held-out generalization gate** ensures the loop doesn't overfit (validated 9 times in a single run).
+3. **Bottom-N rotation** ensures the loop doesn't chase one fixture forever (3 distinct targets).
+4. **Saturation pre-check** ensures the loop doesn't burn cycles on already-perfect baselines.
+
+The next milestone — v0.5.0 — adds cost caps (`--max-usd`, `--max-hours`), the 50-iteration validation run, and ships the loop as a tagged feature. From here it's polish, not architecture.
+
+### Audit artifacts (local, gitignored)
+- `prompt-lab/auto-runs/2026-05-28T171141Z-sonnet/` — β 20-iter validation. `iterations.jsonl` is the load-bearing evidence the gate works.
+
 ## [0.4.1] — 2026-05-28
 
 ### Added
