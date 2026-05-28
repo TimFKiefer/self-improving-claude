@@ -80,7 +80,66 @@ def test_write_summary_produces_parseable_markdown(tmp_path):
     log.write_summary(kept=3, total=5, baseline=baseline, final=final)
     text = log.summary_path.read_text(encoding="utf-8")
     assert "Auto-loop run summary" in text
-    assert "Iterations:** 5" in text
-    assert "Kept:** 3" in text
-    # Δ for average_code = 1.0
-    assert "1.0" in text or "1" in text
+    assert "kept 3" in text
+    assert "Aggregate" in text
+
+
+# v0.5.0 RC: richer summary
+def test_write_summary_includes_usd_and_hours(tmp_path):
+    log = AuditLog(tmp_path, {})
+    log.write_summary(kept=2, total=10, baseline={}, final={},
+                      usd_spent=12.34, hours_spent=1.5)
+    text = log.summary_path.read_text(encoding="utf-8")
+    assert "$12.34" in text
+    assert "1.50h" in text
+
+
+def test_write_summary_decision_breakdown_from_iterations(tmp_path):
+    log = AuditLog(tmp_path, {})
+    log.write_iteration(_record(i=1, decision="kept"))
+    log.write_iteration(_record(i=2, decision="rejected: no_visible_gain"))
+    log.write_iteration(_record(i=3, decision="rejected: holdout_regression"))
+    log.write_iteration(_record(i=4, decision="rejected: holdout_regression"))
+    log.write_summary(kept=1, total=4, baseline={}, final={})
+    text = log.summary_path.read_text(encoding="utf-8")
+    assert "Decision breakdown" in text
+    assert "rejected: holdout_regression" in text
+    assert "| 2 |" in text  # holdout_regression count
+
+
+def test_write_summary_kept_commits_listed(tmp_path):
+    log = AuditLog(tmp_path, {})
+    rec = _record(i=7, decision="kept")
+    rec["commit_sha"] = "deadbee"
+    rec["hypothesis"] = "Tested hypothesis A"
+    log.write_iteration(rec)
+    log.write_iteration(_record(i=8, decision="rejected: no_visible_gain"))
+    log.write_summary(kept=1, total=2, baseline={}, final={})
+    text = log.summary_path.read_text(encoding="utf-8")
+    assert "Kept commits" in text
+    assert "deadbee" in text
+    assert "Tested hypothesis A" in text
+
+
+def test_write_summary_per_fixture_delta_table(tmp_path):
+    log = AuditLog(tmp_path, {})
+    baseline = {"entries": [
+        {"id": "001-x", "code_max": 5.0, "install_rate": 0.5},
+        {"id": "002-y", "code_max": 8.0, "install_rate": 1.0},
+    ]}
+    final = {"entries": [
+        {"id": "001-x", "code_max": 9.0, "install_rate": 1.0},
+        {"id": "002-y", "code_max": 8.0, "install_rate": 1.0},
+    ]}
+    log.write_summary(kept=1, total=5, baseline=baseline, final=final)
+    text = log.summary_path.read_text(encoding="utf-8")
+    assert "Per-fixture" in text
+    assert "001-x" in text and "002-y" in text
+
+
+def test_write_summary_backward_compat_minimal_args(tmp_path):
+    """The old 4-arg call signature still produces a valid markdown file."""
+    log = AuditLog(tmp_path, {})
+    log.write_summary(kept=0, total=5, baseline={}, final={})
+    text = log.summary_path.read_text(encoding="utf-8")
+    assert "kept 0" in text

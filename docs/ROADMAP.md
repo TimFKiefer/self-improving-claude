@@ -183,64 +183,61 @@ Haiku-proposes-and-Haiku-grades is the highest scorer — partly the grader-bias
 
 ---
 
-### v0.5.0 — *The fork in the road*
+### v0.5.0 — The Self-Improvement Loop (Path A, in progress)
 
-**Two candidate themes; choose during v0.4 dogfooding, before brainstorming v0.5.**
+**Fork resolved to Path A.** The vision said "self-improving" is not a metaphor; v0.5.0 makes it real. Implemented as three sub-milestones, two already in the repo:
 
-#### Path A — "The Self-Improvement Loop" (vision-aligned)
+#### v0.5.0-α (shipped, intermediate — `ea84600`, `1ecc530`)
+- **`evals/auto_loop.py`** driver + CLI (`python3 -m evals.auto_loop`). Single fixture, no held-out gate.
+- **`evals/edit_proposer.py`** — anchor-based bounded-edit proposer via Claude CLI.
+- **`evals/ratchet.py`** — `strictly_better` (rejects ties per SkillOpt §8.3) + `regresses`.
+- **`evals/audit.py`** — JSONL audit log per run.
+- Smoke test (run 2, haiku skill-runner, fixture 010): code 6.67 → 10.0 over 5 iter, 2 keeps. Both auto-loop commits **reverted** after held-out check exposed overfit on fixture 008 — α's load-bearing lesson that the held-out gate is essential.
 
-The moment "self-improving-claude" becomes literal. Build the autonomous loop from VISION.md.
+#### v0.5.0-β (shipped, intermediate — `2f0b19b`, `fc8e57d`)
+- **Held-out confirmation gate** in `run_iteration`: after visible `strictly_better`, run held-out eval; on `regresses` → revert. The exact α-overfit scenario is now auto-detected.
+- **Bottom-3 rotation** in `pick_target` — avoids chasing one fixture.
+- **`is_saturated` pre-check** — skips iterations on already-perfect baselines.
+- **α anomaly fix** — `anchor_position` only required for `add`.
+- 20-iter smoke test: 9 held-out rejections fired (the gate works), 1 kept commit (`fc8e57d` — first auto-loop edit to survive both gates). Stays on main.
 
-Components:
-- **Bootstrapped binary assertions** — per `## Step N` heading, generate pass/fail checks (Claude drafts, human curates). This replaces the subjective model-grader axis with deterministic behavioral assertions, which the loop can optimize against.
-- **Edit-proposer** — a script/skill that proposes ONE small change to a SKILL/reference file each iteration.
-- **Score delta vs git baseline** — `evals/run.py` extended to auto-compare against the previous committed baseline.
-- **Git ratchet** — commit if score went up; `git reset --hard` if down.
-- **Loop driver** — runs N iterations with cost-cap, time-cap, edit-count-cap, full audit log.
-- **CLI command** — `python3 -m self_improving_claude.auto` or similar; you start it before bed, you read the log in the morning.
+#### v0.5.0 RC (this milestone — caps + 50-iter validation + tag)
+- **`--max-usd`** cost cap (per-iter lookahead estimate from token counts × model pricing) and **`--max-hours`** wall-clock cap.
+- **Polished `summary.md`** — per-fixture Δ, kept-commits list, USD/time spent, decision breakdown.
+- **ROADMAP move** — v0.5.0 from Planned → Done at tag time.
+- **50-iteration validation run** (gated, ~$35–50, ~5–7h wall-clock).
+- **`plugin.json` 0.4.1 → 0.5.0**; **`git tag -a v0.5.0`**.
 
-**Why this path:** Honors the project name. v0.4 made it possible; v0.5 makes it real.
+**Deferred (originally on the Path A list):**
+- *"Bootstrapped binary assertions per Step heading"* — the eval already grades at fixture level; per-Step assertions are their own mini-project. Move to v0.6 only if the loop starves for signal.
 
-**Risk:** Genuinely hard. The binary-assertion bootstrapping is itself a mini-project.
+**Path B status:** the loop has not yet surfaced composed hooks as an emergent answer. We'll re-check at v0.5.0 tag; if the 50-iter run doesn't propose them, Path B becomes a v0.6 candidate.
 
-**Bonus:** If the loop works, it may discover composed hooks (Path B's headline) on its own — by editing the procedure / rubric / examples until proposals start including them. The loop replaces hand-coded feature development.
-
-#### Path B — "Composed Hooks + Auto-Collect" (feature-aligned)
-
-The original v0.4 headline before vision-prioritization. Build the structural enforcement primitive.
-
-- **Track 1 — Composed PostToolUse + Stop** with shared state file, recursion-guard, new Example 6, new feedback mode `weak-enforcement`, fixture 008.
-- **Track 2 — Auto-collect** Stop hook for pattern detection, opt-in env-var, candidates.jsonl flow, telemetry schema extension.
-
-**Why this path:** Concrete user value. Closes a known gap from v0.3 dogfooding. Lower risk than building the auto-loop.
-
-**Risk:** If we ship Path B without ever building the loop, the project name remains aspirational. v0.6+ becomes "we'll get there eventually."
-
-**Recommendation if forced:** **Path A.** The vision says "self-improving" is not a metaphor. v0.5 is where that promise either gets paid or gets quietly converted into a different project. Path B's deliverables can re-emerge naturally from Path A's loop — composed hooks is the kind of orchestrator-rubric change the loop will discover when it tries to drive `fixture 006`'s score upward.
-
-**Exit criteria (Path A):**
+**Exit criteria (RC tag):**
 - [ ] Loop completes 50+ iterations unattended without crashing
-- [ ] At least one fixture's average score improves by ≥1.5 points across the run
-- [ ] Audit log shows every edit, its score delta, and the keep/reset decision
-- [ ] Reproducible: re-running the loop from the same baseline produces similar (not identical, but directionally consistent) improvements
+- [ ] At least one fixture's `code` score improves ≥ 1.5 points across the run
+- [ ] Audit log JSON contains every iteration's edit, scores before/after, keep/reset decision, hypothesis
+- [ ] Loop respects USD + wall-clock + iteration caps (validated by audit)
+- [ ] At least one auto-kept commit demonstrates a win the prompt-lab session didn't find
+- [ ] Plugin version bumped 0.4.1 → 0.5.0; tag annotated
 
-**Exit criteria (Path B):**
-- [ ] Form 5b (composed hooks) is in the procedure ladder, with Example 6
-- [ ] Fixture 008 catches the composed-hook regression case
-- [ ] Auto-collect produces non-empty candidates.jsonl in real dogfooding sessions
-- [ ] Stop-hook recursion-guard verified (no infinite loop possible)
+**Reproducibility check** (spec criterion: re-running produces > 50% keep-set overlap) is **deferred to v0.5.1** — a 50-iter rerun is its own $50.
 
 ---
 
-### v0.6.0 — Activation Frontier (assumes v0.5 = Path A)
+### v0.6.0 — Activation Frontier (unblocked by v0.5.0)
 
 **Theme:** Self-improve the *trigger* of the skill, not just the body.
 
 A skill that never fires is worthless (VISION.md §"Two frontiers"). Currently `/improve` and `/improve-init` are user-triggered by typing — but the project will eventually grow model-invoked skills, and even the user-invoked ones have descriptions that affect when Claude suggests them.
 
+**β findings inform v0.6 directly:**
+- The edit-proposer's bounded-edit JSON contract is **reusable** for description-frontmatter optimization — a new fixture type (trigger-accuracy positive/negative pairs) plus a new allowlist entry (`plugin/skills/<skill>/SKILL.md` frontmatter only) is the minimal lift.
+- The held-out gate **generalizes** naturally — held-out trigger-accuracy fixtures catch description edits that improve one fixture but over-fire (or under-fire) on others.
+
 Components:
 - **Trigger-accuracy fixtures** — synthetic "should this skill fire for prompt X?" pairs. Some positive ("user just saw a bug" → /improve should fire), some negative ("user asks for unrelated help" → /improve should NOT be suggested).
-- **Description-optimization in the same loop** — the auto-research loop from v0.5 extended to also edit skill frontmatter `description` fields, scoring against trigger-accuracy fixtures.
+- **Description-optimization in the same loop** — `evals/auto_loop.py` extended with a new edit target (frontmatter `description` field), scoring against trigger-accuracy fixtures alongside the existing rubric fixtures.
 
 **Exit criteria:**
 - [ ] At least 10 trigger-accuracy fixtures (5 positive, 5 negative)
@@ -404,7 +401,7 @@ The only invariants:
 
 ---
 
-**Last updated:** 2026-05-28, alongside the v0.4.0 tag (moved v0.4.0 to Done; v0.4.1 SkillOpt disciplines now Planned).
+**Last updated:** 2026-05-28, alongside the v0.5.0-α + v0.5.0-β implementation. v0.5.0 = Path A (auto-loop) — α + β shipped intermediate; RC adds caps + 50-iter validation + tag. v0.6 outlook refreshed.
 
 **Linked artifacts:**
 - [`docs/VISION.md`](VISION.md) — what we're building toward

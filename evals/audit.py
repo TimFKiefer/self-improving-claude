@@ -61,24 +61,91 @@ class AuditLog:
                     rejected.append(rec)
         return rejected[-n:]
 
-    def write_summary(self, *, kept: int, total: int, baseline: dict, final: dict) -> None:
+    def _read_iterations(self) -> list[dict]:
+        """Read all iteration records from iterations.jsonl. Returns [] on missing file."""
+        if not self.iterations_path.exists():
+            return []
+        out = []
+        with self.iterations_path.open(encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        return out
+
+    def write_summary(self, *, kept: int, total: int, baseline: dict, final: dict,
+                      usd_spent: float | None = None,
+                      hours_spent: float | None = None) -> None:
+        """Write a markdown run summary. Pulls decision breakdown, kept commits,
+        and per-fixture Δ from the iterations.jsonl this AuditLog owns."""
         ts = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        records = self._read_iterations()
+
+        # Decision breakdown
+        decision_counts: dict[str, int] = {}
+        kept_commits: list[tuple[int, str, str]] = []  # (i, sha, hypothesis)
+        for r in records:
+            d = r.get("decision", "?")
+            decision_counts[d] = decision_counts.get(d, 0) + 1
+            if d == "kept" and r.get("commit_sha"):
+                kept_commits.append((r["i"], r["commit_sha"],
+                                     (r.get("hypothesis") or "")[:90]))
+
+        # Header
         lines = [
-            f"# Auto-loop run summary",
-            f"",
+            "# Auto-loop run summary",
+            "",
             f"- **Completed:** {ts}",
-            f"- **Iterations:** {total}",
-            f"- **Kept:** {kept}",
-            f"- **Rejected:** {total - kept}",
-            f"",
-            f"## Baseline → Final",
-            f"",
-            "| metric | baseline | final | Δ |",
-            "|---|---|---|---|",
+            f"- **Iterations:** {total} (kept {kept}, rejected {total - kept})",
         ]
+        if usd_spent is not None:
+            lines.append(f"- **USD spent (estimate):** ${usd_spent:.2f}")
+        if hours_spent is not None:
+            lines.append(f"- **Wall-clock:** {hours_spent:.2f}h")
+        lines.append("")
+
+        # Aggregate Δ
+        lines += ["## Aggregate Δ", "",
+                  "| metric | baseline | final | Δ |",
+                  "|---|---|---|---|"]
         for m in ("average_code", "install_rate", "fire_rate", "average_restraint"):
             b = baseline.get(m)
             f = final.get(m)
             d = (f - b) if (isinstance(b, (int, float)) and isinstance(f, (int, float))) else None
             lines.append(f"| {m} | {b} | {f} | {d if d is None else round(d, 4)} |")
-        self.summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        lines.append("")
+
+        # Per-fixture Δ (visible)
+        b_entries = baseline.get("entries") if isinstance(baseline, dict) else None
+        f_entries = final.get("entries") if isinstance(final, dict) else None
+        if b_entries and f_entries:
+            f_by_id = {e["id"]: e for e in f_entries}
+            lines += ["## Per-fixture Δ", "",
+                      "| fixture | code before | code after | install before | install after |",
+                      "|---|---:|---:|---:|---:|"]
+            for be in b_entries:
+                fe = f_by_id.get(be["id"], {})
+                lines.append(f"| {be['id']} | {be.get('code_max')} | {fe.get('code_max')} "
+                             f"| {be.get('install_rate')} | {fe.get('install_rate')} |")
+            lines.append("")
+
+        # Kept commits
+        if kept_commits:
+            lines += ["## Kept commits", ""]
+            for i, sha, hyp in kept_commits:
+                lines.append(f"- `{sha}` — iter {i}: {hyp}")
+            lines.append("")
+
+        # Decision breakdown
+        if decision_counts:
+            lines += ["## Decision breakdown", "",
+                      "| decision | count |", "|---|---:|"]
+            for d in sorted(decision_counts, key=lambda x: -decision_counts[x]):
+                lines.append(f"| {d} | {decision_counts[d]} |")
+            lines.append("")
+
+        self.summary_path.write_text("\n".join(lines), encoding="utf-8")

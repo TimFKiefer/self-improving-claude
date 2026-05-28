@@ -255,3 +255,196 @@ def test_is_saturated_tolerates_floating_point_near_max():
 def test_is_saturated_false_when_restraint_below_max_and_others_unset():
     assert is_saturated({"average_code": None, "install_rate": None,
                          "fire_rate": None, "average_restraint": 5.0}) is False
+
+
+# ----- v0.5.0 RC: cost estimation tests -----------------------------------
+
+from evals.auto_loop import (
+    _estimate_eval_cost_usd, _estimate_proposer_cost_usd,
+    _estimate_iteration_cost_usd, _estimate_initial_baselines_cost_usd,
+)
+
+
+def test_eval_cost_positive_and_scales_linearly():
+    one = _estimate_eval_cost_usd("haiku", "opus", n_fixtures=1)
+    nine = _estimate_eval_cost_usd("haiku", "opus", n_fixtures=9)
+    assert one > 0
+    assert abs(nine - 9 * one) < 1e-9
+
+
+def test_eval_cost_orders_haiku_lt_sonnet_lt_opus():
+    h = _estimate_eval_cost_usd("haiku", "haiku", n_fixtures=1)
+    s = _estimate_eval_cost_usd("claude-sonnet-4-5", "haiku", n_fixtures=1)
+    o = _estimate_eval_cost_usd("opus", "haiku", n_fixtures=1)
+    assert h < s < o
+
+
+def test_eval_cost_unknown_model_uses_default():
+    """Unknown model falls back to DEFAULT_PRICING (sonnet-ish). Must not raise."""
+    out = _estimate_eval_cost_usd("future-model-9000", "haiku", n_fixtures=1)
+    assert out > 0
+
+
+def test_proposer_cost_positive_orders_correctly():
+    h = _estimate_proposer_cost_usd("haiku")
+    s = _estimate_proposer_cost_usd("claude-sonnet-4-5")
+    o = _estimate_proposer_cost_usd("opus")
+    assert 0 < h < s < o
+
+
+def test_iteration_cost_with_holdout_is_proposer_plus_4_fixtures():
+    """Per spec: proposer + visible single-fixture + held-out 3-fixture = 4 fixture evals."""
+    p = _estimate_proposer_cost_usd("claude-sonnet-4-5")
+    four_evals = _estimate_eval_cost_usd("haiku", "opus", n_fixtures=4)
+    expected = p + four_evals
+    actual = _estimate_iteration_cost_usd(
+        skill_model="haiku", judge_model="opus",
+        proposer_model="claude-sonnet-4-5", holdout_gate_on=True,
+    )
+    assert abs(actual - expected) < 1e-9
+
+
+def test_iteration_cost_without_holdout_is_proposer_plus_1_fixture():
+    """No held-out gate → no held-out eval."""
+    p = _estimate_proposer_cost_usd("claude-sonnet-4-5")
+    one_eval = _estimate_eval_cost_usd("haiku", "opus", n_fixtures=1)
+    actual = _estimate_iteration_cost_usd(
+        skill_model="haiku", judge_model="opus",
+        proposer_model="claude-sonnet-4-5", holdout_gate_on=False,
+    )
+    assert abs(actual - (p + one_eval)) < 1e-9
+
+
+def test_initial_baseline_cost_rotation_with_gate_is_12_fixtures():
+    expected = _estimate_eval_cost_usd("haiku", "opus", n_fixtures=12)
+    actual = _estimate_initial_baselines_cost_usd(
+        skill_model="haiku", judge_model="opus",
+        rotation_mode=True, holdout_gate_on=True,
+    )
+    assert abs(actual - expected) < 1e-9
+
+
+def test_initial_baseline_cost_rotation_without_gate_is_9_fixtures():
+    expected = _estimate_eval_cost_usd("haiku", "opus", n_fixtures=9)
+    actual = _estimate_initial_baselines_cost_usd(
+        skill_model="haiku", judge_model="opus",
+        rotation_mode=True, holdout_gate_on=False,
+    )
+    assert abs(actual - expected) < 1e-9
+
+
+def test_initial_baseline_cost_fixed_mode_with_gate_is_3_fixtures():
+    """α-compat mode skips visible-9, only runs held-out-3."""
+    expected = _estimate_eval_cost_usd("haiku", "opus", n_fixtures=3)
+    actual = _estimate_initial_baselines_cost_usd(
+        skill_model="haiku", judge_model="opus",
+        rotation_mode=False, holdout_gate_on=True,
+    )
+    assert abs(actual - expected) < 1e-9
+
+
+def test_initial_baseline_cost_fixed_mode_without_gate_is_zero():
+    """No visible baseline (fixed mode), no held-out → no upfront cost."""
+    actual = _estimate_initial_baselines_cost_usd(
+        skill_model="haiku", judge_model="opus",
+        rotation_mode=False, holdout_gate_on=False,
+    )
+    assert actual == 0.0
+
+
+# v0.5.0 RC: cap enforcement integration tests (mock eval + proposer)
+class _FakeProposer:
+    def __init__(self):
+        self.messages = type("M", (), {"create": self._create})()
+    def _create(self, **k):
+        import json
+        from types import SimpleNamespace
+        # Return a low-confidence proposal so apply_edit isn't called (cheap unit test)
+        body = json.dumps({
+            "file": "plugin/skills/_shared/orchestrator-procedure.md",
+            "operation": "add", "anchor": "## Step 4",
+            "anchor_position": "after", "new_content": "x",
+            "hypothesis": "stub", "confidence": 2,
+        })
+        return SimpleNamespace(content=[SimpleNamespace(text=body)])
+
+
+def test_main_aborts_when_initial_baselines_exceed_max_usd(monkeypatch, tmp_path):
+    """Pre-flight: if --max-usd can't even cover initial baselines, refuse to start."""
+    import evals.auto_loop as al
+    monkeypatch.setattr(al, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(al, "_check_clean_tree", lambda: None)
+    # rotation mode + holdout gate = 12-fixture initial baseline; set max-usd absurdly low
+    rc = al.main(["--max-iterations", "5", "--max-usd", "0.01",
+                  "--skill-runner", "opus", "--judge", "opus"])
+    assert rc == 2  # refused
+
+
+def _setup_main_mocks(monkeypatch, tmp_path):
+    """Common scaffold for cap-enforcement tests: stub all heavy I/O on al + on
+    run_iteration's collaborators so the loop body never makes real calls."""
+    import evals.auto_loop as al
+    monkeypatch.setattr(al, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(al, "_check_clean_tree", lambda: None)
+    visible_stub = {"entries": [{"id": "fx-1", "code_max": 5, "install_rate": 0.5}],
+                    "average_code": 5.0, "install_rate": 0.5,
+                    "fire_rate": None, "average_restraint": None}
+    monkeypatch.setattr(al, "run_visible_eval", lambda *a, **k: (visible_stub, []))
+    monkeypatch.setattr(al, "run_holdout_eval", lambda *a, **k:
+                        ({"average_code": 5.0, "install_rate": 1.0,
+                          "fire_rate": None, "average_restraint": None,
+                          "entries": [], "restraint_entries": []}, []))
+    monkeypatch.setattr(al, "_run_eval_and_extract_result", lambda *a, **k:
+                        (visible_stub, {"proposals": []}))
+    monkeypatch.setattr(al, "_read_slow_state", lambda: ("procedure", "rubric"))
+    # Mock run_iteration entirely so we don't depend on dataset lookups
+    def _stub_iter(*, i, target_id, baseline, last_result, holdout_baseline, audit, **kw):
+        audit.write_iteration({
+            "i": i, "ts": "0", "fixture": target_id,
+            "edit": {}, "hypothesis": "", "confidence": 0,
+            "scores_before": dict(baseline), "scores_after": None,
+            "scores_holdout_before": dict(holdout_baseline) if holdout_baseline else None,
+            "scores_holdout_after": None,
+            "decision": "rejected: stub", "commit_sha": None,
+        })
+        return baseline, last_result, holdout_baseline
+    monkeypatch.setattr(al, "run_iteration", _stub_iter)
+    monkeypatch.setattr(al, "pick_target", lambda *a, **k: "fx-1")
+    from evals.client_claude_cli import ClaudeCliClient
+    monkeypatch.setattr(ClaudeCliClient, "__init__", lambda self, **k: None)
+    return al
+
+
+def test_main_aborts_mid_loop_when_max_usd_hit(monkeypatch, tmp_path):
+    """During the loop: usd_spent + lookahead > max_usd should break before next iter."""
+    al = _setup_main_mocks(monkeypatch, tmp_path)
+    rc = al.main(["--max-iterations", "100",
+                  "--max-usd", "3.5",  # ~$2.16 baselines + ~$0.76/iter = ~2 iter
+                  "--skill-runner", "haiku", "--judge", "opus",
+                  "--proposer", "claude-sonnet-4-5"])
+    assert rc == 0
+    runs = list((tmp_path / "prompt-lab" / "auto-runs").iterdir())
+    assert len(runs) == 1
+    iters = (runs[0] / "iterations.jsonl").read_text(encoding="utf-8").splitlines()
+    n = len([l for l in iters if l.strip()])
+    assert 0 < n < 10, f"expected cap to abort early, got {n} iterations"
+
+
+def test_main_aborts_mid_loop_when_max_hours_hit(monkeypatch, tmp_path):
+    """The --max-hours cap fires when elapsed time exceeds the limit."""
+    al = _setup_main_mocks(monkeypatch, tmp_path)
+    # First call (state init) returns 0; later calls advance past --max-hours
+    counter = [0]
+    def fake_monotonic():
+        counter[0] += 1
+        # First call: 0 (start); next: 0 (summary call check); then advance fast
+        return 0.0 if counter[0] <= 1 else counter[0] * 1000.0
+    monkeypatch.setattr(al.time, "monotonic", fake_monotonic)
+    rc = al.main(["--max-iterations", "100", "--max-hours", "0.2",
+                  "--skill-runner", "haiku", "--judge", "opus",
+                  "--proposer", "claude-sonnet-4-5"])
+    assert rc == 0
+    runs = list((tmp_path / "prompt-lab" / "auto-runs").iterdir())
+    iters = (runs[0] / "iterations.jsonl").read_text(encoding="utf-8").splitlines()
+    n = len([l for l in iters if l.strip()])
+    assert n < 100, f"expected --max-hours to abort early, got {n}"

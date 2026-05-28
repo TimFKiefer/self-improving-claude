@@ -14,6 +14,7 @@ import datetime as dt
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -29,6 +30,76 @@ SYNC_AFFECTED_PATHS = ("plugin/skills/_shared", "plugin/skills/improve",
                        "plugin/skills/improve-init")
 
 MAX_NEW_CONTENT_LINES = 8  # SkillOpt §8.1 edit-budget
+
+# ---------------------------------------------------------------------------
+# Cost estimation — coarse USD lookahead for the --max-usd cap (v0.5.0)
+# ---------------------------------------------------------------------------
+# Anthropic API pricing (USD per 1M tokens), input / output, as of 2026-05.
+# claude --print subscription auth doesn't reliably expose actual USD; we
+# estimate from char counts (chars/4 ≈ tokens). Re-calibrate when pricing
+# drifts. Upper-bound estimates are intentional — better to abort early than
+# overspend. Per SkillOpt §8.6, these are GATING (used to enforce --max-usd).
+MODEL_PRICING = {
+    "haiku":              {"in":  1.00, "out":  5.00},
+    "claude-sonnet-4-5":  {"in":  3.00, "out": 15.00},
+    "opus":               {"in": 15.00, "out": 75.00},
+}
+DEFAULT_PRICING = {"in": 3.00, "out": 15.00}
+
+# Rough token budgets observed in v0.4-v0.5 sandbox runs.
+SKILL_RUN_INPUT_TOKENS = 50_000   # SKILL.md + procedure + references + fixture context
+SKILL_RUN_OUTPUT_TOKENS = 5_000   # JSON proposals echo
+JUDGE_INPUT_TOKENS = 2_000        # per-proposal grader call
+JUDGE_OUTPUT_TOKENS = 1_000
+PROPOSER_INPUT_TOKENS = 10_000    # procedure + rubric + fixture failure + history
+PROPOSER_OUTPUT_TOKENS = 500      # the edit JSON
+
+
+def _price(model: str) -> dict:
+    return MODEL_PRICING.get(model, DEFAULT_PRICING)
+
+
+def _estimate_eval_cost_usd(skill_model: str, judge_model: str, n_fixtures: int = 1) -> float:
+    """Coarse USD estimate for `n_fixtures` sandbox-eval invocations.
+    Upper-bound; over-counts when fixtures hit fewer proposals than expected."""
+    s = _price(skill_model)
+    j = _price(judge_model)
+    skill_per_fixture = (SKILL_RUN_INPUT_TOKENS * s["in"]
+                         + SKILL_RUN_OUTPUT_TOKENS * s["out"]) / 1_000_000
+    judge_per_fixture = (JUDGE_INPUT_TOKENS * j["in"]
+                         + JUDGE_OUTPUT_TOKENS * j["out"]) / 1_000_000
+    return n_fixtures * (skill_per_fixture + judge_per_fixture)
+
+
+def _estimate_proposer_cost_usd(proposer_model: str) -> float:
+    """Coarse USD estimate for one edit-proposer call."""
+    p = _price(proposer_model)
+    return (PROPOSER_INPUT_TOKENS * p["in"]
+            + PROPOSER_OUTPUT_TOKENS * p["out"]) / 1_000_000
+
+
+def _estimate_iteration_cost_usd(*, skill_model: str, judge_model: str,
+                                  proposer_model: str, holdout_gate_on: bool) -> float:
+    """Upper-bound USD estimate for one iteration: proposer + single-fixture
+    visible eval + (if held-out gate on AND visible would pass) 3-fixture
+    held-out eval. We assume held-out runs to be conservative."""
+    cost = _estimate_proposer_cost_usd(proposer_model)
+    cost += _estimate_eval_cost_usd(skill_model, judge_model, n_fixtures=1)
+    if holdout_gate_on:
+        cost += _estimate_eval_cost_usd(skill_model, judge_model, n_fixtures=3)
+    return cost
+
+
+def _estimate_initial_baselines_cost_usd(*, skill_model: str, judge_model: str,
+                                          rotation_mode: bool, holdout_gate_on: bool) -> float:
+    """Upper-bound USD estimate for the initial baselines `main()` runs before
+    the loop starts: visible-9 (rotation mode only) + held-out-3 (gate on only)."""
+    cost = 0.0
+    if rotation_mode:
+        cost += _estimate_eval_cost_usd(skill_model, judge_model, n_fixtures=9)
+    if holdout_gate_on:
+        cost += _estimate_eval_cost_usd(skill_model, judge_model, n_fixtures=3)
+    return cost
 
 
 def apply_edit(edit: dict, repo_root: Path = REPO_ROOT) -> tuple[bool, str]:
@@ -411,6 +482,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="propose edits but do not apply or commit")
     parser.add_argument("--no-holdout-gate", action="store_true",
                         help="(α-compat) disable the held-out confirmation gate")
+    parser.add_argument("--max-usd", type=float, default=None,
+                        help="abort cleanly before next iteration would exceed this USD cap "
+                             "(coarse estimate from token counts × per-model pricing)")
+    parser.add_argument("--max-hours", type=float, default=None,
+                        help="abort cleanly before next iteration if total wall-clock "
+                             "elapsed (since launch) exceeds this many hours")
     args = parser.parse_args(argv)
 
     _check_clean_tree()
@@ -418,6 +495,24 @@ def main(argv: list[str] | None = None) -> int:
     # Lazy imports to keep import cost low for unit tests
     from evals.client_claude_cli import ClaudeCliClient
     from evals.audit import AuditLog
+
+    rotation_mode = args.target_fixture is None
+    holdout_gate_on = not args.no_holdout_gate
+    iter_cost_est = _estimate_iteration_cost_usd(
+        skill_model=args.skill_runner, judge_model=args.judge,
+        proposer_model=args.proposer, holdout_gate_on=holdout_gate_on,
+    )
+    initial_cost_est = _estimate_initial_baselines_cost_usd(
+        skill_model=args.skill_runner, judge_model=args.judge,
+        rotation_mode=rotation_mode, holdout_gate_on=holdout_gate_on,
+    )
+
+    # Pre-flight: if max_usd is set and we can't even afford the initial baselines, refuse
+    if args.max_usd is not None and initial_cost_est > args.max_usd:
+        print(f"[cap] --max-usd {args.max_usd:.2f} cannot cover initial baselines "
+              f"(estimate ${initial_cost_est:.2f}). Raise --max-usd or use --target-fixture.",
+              file=sys.stderr)
+        return 2
 
     audit_root = REPO_ROOT / "prompt-lab" / "auto-runs"
     audit = AuditLog(audit_root, config={
@@ -428,14 +523,26 @@ def main(argv: list[str] | None = None) -> int:
         "skill_runner": args.skill_runner,
         "judge": args.judge,
         "dry_run": args.dry_run,
-        "holdout_gate_enabled": not args.no_holdout_gate,
+        "holdout_gate_enabled": holdout_gate_on,
+        "max_usd": args.max_usd,
+        "max_hours": args.max_hours,
+        "iter_cost_est_usd": round(iter_cost_est, 4),
+        "initial_cost_est_usd": round(initial_cost_est, 4),
         "start_ts": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }, proposer_short=args.proposer.split("-")[1] if "-" in args.proposer else args.proposer)
 
-    mode = "rotation" if args.target_fixture is None else f"fixed:{args.target_fixture}"
-    gate = "on" if not args.no_holdout_gate else "OFF"
-    print(f"Auto-loop β — mode={mode} holdout-gate={gate} proposer={args.proposer} "
-          f"skill-runner={args.skill_runner} judge={args.judge} max-iter={args.max_iterations}",
+    mode = "rotation" if rotation_mode else f"fixed:{args.target_fixture}"
+    gate = "on" if holdout_gate_on else "OFF"
+    caps = []
+    if args.max_usd is not None:
+        caps.append(f"--max-usd=${args.max_usd:.2f}")
+    if args.max_hours is not None:
+        caps.append(f"--max-hours={args.max_hours}")
+    cap_str = (" caps=" + ",".join(caps)) if caps else ""
+    print(f"Auto-loop v0.5.0 — mode={mode} holdout-gate={gate} proposer={args.proposer} "
+          f"skill-runner={args.skill_runner} judge={args.judge} max-iter={args.max_iterations}"
+          f"{cap_str}", file=sys.stderr)
+    print(f"Cost estimate: initial ${initial_cost_est:.2f} + ~${iter_cost_est:.2f}/iter",
           file=sys.stderr)
     print(f"Audit dir: {audit.dir}", file=sys.stderr)
 
@@ -446,40 +553,63 @@ def main(argv: list[str] | None = None) -> int:
     state = {"baseline": None, "last_result": None, "holdout_baseline": None,
              "iteration": 0, "recent_picks": [], "kept": 0,
              "visible_baseline": None, "original_visible": None,
-             "original_holdout": None}
+             "original_holdout": None,
+             "usd_spent": 0.0,
+             "start_monotonic": time.monotonic()}
 
     def _on_sigint(signum, frame):
         print("\n[SIGINT] writing audit summary and exiting cleanly", file=sys.stderr)
-        if state["baseline"] is not None:
-            audit.write_summary(kept=state["kept"], total=state["iteration"],
-                                baseline=state["original_visible"] or state["baseline"],
-                                final=state["baseline"])
+        if state["baseline"] is not None or state["visible_baseline"] is not None:
+            hours = (time.monotonic() - state["start_monotonic"]) / 3600
+            audit.write_summary(
+                kept=state["kept"], total=state["iteration"],
+                baseline=state["original_visible"] or state["baseline"] or {},
+                final=state["visible_baseline"] or state["baseline"] or {},
+                usd_spent=state["usd_spent"], hours_spent=hours,
+            )
         sys.exit(130)
     signal.signal(signal.SIGINT, _on_sigint)
 
-    # Initial baselines
-    if args.target_fixture is None:
+    # Initial baselines (cost accounted up-front per estimate; actual call burns subscription quota)
+    if rotation_mode:
         print("[baseline] running visible-9 eval (for rotation picking)...", file=sys.stderr)
         visible_baseline, _ = run_visible_eval(args.skill_runner, args.judge)
         state["visible_baseline"] = visible_baseline
         state["original_visible"] = dict(visible_baseline)
+        state["usd_spent"] += _estimate_eval_cost_usd(args.skill_runner, args.judge, n_fixtures=9)
         print(f"[baseline] visible: code={visible_baseline.get('average_code'):.2f} "
               f"install={visible_baseline.get('install_rate')} "
               f"restraint={visible_baseline.get('average_restraint')}", file=sys.stderr)
     else:
         print(f"[baseline] α-mode (fixed fixture {args.target_fixture})", file=sys.stderr)
 
-    if not args.no_holdout_gate:
+    if holdout_gate_on:
         print("[baseline] running held-out-3 eval (for gate)...", file=sys.stderr)
         holdout_baseline, _ = run_holdout_eval(args.skill_runner, args.judge)
         state["holdout_baseline"] = holdout_baseline
         state["original_holdout"] = dict(holdout_baseline)
+        state["usd_spent"] += _estimate_eval_cost_usd(args.skill_runner, args.judge, n_fixtures=3)
         print(f"[baseline] holdout: code={holdout_baseline.get('average_code')} "
               f"install={holdout_baseline.get('install_rate')} "
               f"restraint={holdout_baseline.get('average_restraint')}", file=sys.stderr)
 
     for i in range(1, args.max_iterations + 1):
         state["iteration"] = i
+
+        # v0.5.0 caps: abort cleanly before next iter would exceed budget
+        if args.max_usd is not None:
+            if state["usd_spent"] + iter_cost_est > args.max_usd:
+                print(f"\n[cap] would exceed --max-usd ${args.max_usd:.2f} "
+                      f"(spent ${state['usd_spent']:.2f}, next iter ~${iter_cost_est:.2f}); "
+                      f"aborting after {i-1} iterations.", file=sys.stderr)
+                break
+        if args.max_hours is not None:
+            elapsed_hours = (time.monotonic() - state["start_monotonic"]) / 3600
+            if elapsed_hours >= args.max_hours:
+                print(f"\n[cap] elapsed {elapsed_hours:.2f}h ≥ --max-hours {args.max_hours}; "
+                      f"aborting after {i-1} iterations.", file=sys.stderr)
+                break
+
         target_id = pick_target(
             state["visible_baseline"] or {"entries": [{"id": args.target_fixture or "?",
                                                        "code_max": 0, "install_rate": 0}]},
@@ -507,8 +637,9 @@ def main(argv: list[str] | None = None) -> int:
             client=proposer_client, proposer_model=args.proposer,
             skill_model=args.skill_runner, judge_model=args.judge,
             dry_run=args.dry_run,
-            holdout_gate_enabled=not args.no_holdout_gate,
+            holdout_gate_enabled=holdout_gate_on,
         )
+        state["usd_spent"] += iter_cost_est  # upper-bound accumulation
         state["recent_picks"].append(target_id)
         if new_baseline is not state["baseline"]:
             state["kept"] += 1
@@ -525,12 +656,16 @@ def main(argv: list[str] | None = None) -> int:
         state["last_result"] = new_result
 
     final_summary = state["visible_baseline"] or state["baseline"] or {}
+    hours_spent = (time.monotonic() - state["start_monotonic"]) / 3600
     audit.write_summary(
-        kept=state["kept"], total=args.max_iterations,
+        kept=state["kept"], total=state["iteration"],
         baseline=state["original_visible"] or state["original_holdout"] or {},
         final=final_summary,
+        usd_spent=state["usd_spent"],
+        hours_spent=hours_spent,
     )
-    print(f"\nDone. Kept {state['kept']}/{args.max_iterations}. "
+    print(f"\nDone. Kept {state['kept']}/{state['iteration']}. "
+          f"USD spent ~${state['usd_spent']:.2f}, wall-clock {hours_spent:.2f}h. "
           f"Audit: {audit.dir}", file=sys.stderr)
     return 0
 
