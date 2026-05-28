@@ -19,3 +19,6 @@ __pycache__/
 # Local-only scratch
 scratch/
 tmp/
+
+# Auto-loop audit dirs (per-run, local artifacts)
+prompt-lab/auto-runs/
