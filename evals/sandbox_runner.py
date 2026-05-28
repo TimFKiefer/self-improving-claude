@@ -147,7 +147,7 @@ def _read_written(tmp: Path) -> dict:
 
 
 def run_in_sandbox(*, entry: dict, fixture: Fixture, model: str,
-                   plugin_path: Path, timeout: float = 600, effort: str | None = None) -> dict:
+                   plugin_path: Path, timeout: float = 900, effort: str | None = None) -> dict:
     """Drive the real slash command headlessly for one (fixture x model).
 
     Returns {echo, echo_valid, written, raw_result, returncode, error}. Always
@@ -166,6 +166,14 @@ def run_in_sandbox(*, entry: dict, fixture: Fixture, model: str,
             proc = subprocess.run(argv, cwd=str(tmp), capture_output=True, text=True, timeout=timeout)
         except FileNotFoundError as e:
             raise RuntimeError("`claude` CLI not found on PATH — is Claude Code installed?") from e
+        except subprocess.TimeoutExpired:
+            # One slow run must not discard the rest of the batch — score this entry
+            # as a timeout and let the _main_sandbox loop continue with the next entry.
+            return {
+                "echo": [], "echo_valid": False, "written": _read_written(tmp),
+                "raw_result": "", "returncode": None,
+                "error": f"timeout after {timeout}s",
+            }
         error = None
         result_text = ""
         if proc.returncode != 0:
