@@ -1,0 +1,1623 @@
+{
+  "date": "2026-05-28T03:49:39Z",
+  "mode": "sandbox",
+  "proposer": "opus",
+  "judge": "opus",
+  "effort": "default",
+  "results": [
+    {
+      "id": "001-pnpm-test-watcher",
+      "trigger": "improve-init",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "Blocks the recurring `pnpm test` watcher trap by inspecting the Bash command before it runs and pointing Claude at `pnpm test:ci`; a `permissions.deny` rule would also block the correct `pnpm test:ci` because it shares the same prefix.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"Block `pnpm test` (interactive vitest watcher); steer Claude to `pnpm test:ci`.\"\"\"\nimport json, sys\n\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    if ev.get(\"tool_name\") != \"Bash\":\n        return 0\n    cmd = (ev.get(\"tool_input\") or {}).get(\"command\", \"\")\n    s = cmd.strip()\n    if s.startswith(\"pnpm test\") and \"test:ci\" not in s:\n        print(\n            \"Use `pnpm test:ci` instead. `pnpm test` runs `vitest` which opens the interactive watcher and will not return.\",\n            file=sys.stderr,\n        )\n        return 2\n    return 0\n\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/block-pnpm-test-watcher"
+        },
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "Enforces CLAUDE.md's `pnpm lint` before commit convention by running lint on every `git commit` invocation and blocking the commit if lint fails; a CLAUDE.md note alone relies on the model remembering and a `permissions.ask` cannot actually run lint.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"Run `pnpm lint` before any `git commit`; block the commit if lint fails.\n\nEnforces the CLAUDE.md convention: \"Run lint with `pnpm lint` before committing.\"\n\"\"\"\nimport json, os, re, subprocess, sys\n\nGIT_COMMIT = re.compile(r\"\\bgit\\s+commit\\b\")\n\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    if ev.get(\"tool_name\") != \"Bash\":\n        return 0\n    cmd = (ev.get(\"tool_input\") or {}).get(\"command\", \"\")\n    if not GIT_COMMIT.search(cmd):\n        return 0\n    cwd = ev.get(\"cwd\") or os.environ.get(\"CLAUDE_PROJECT_DIR\") or os.getcwd()\n    try:\n        r = subprocess.run(\n            [\"pnpm\", \"lint\"],\n            cwd=cwd,\n            capture_output=True,\n            text=True,\n            timeout=90,\n        )\n    except Exception as e:\n        print(\n            f\"BLOCKING: could not run `pnpm lint` ({e}). Fix the lint setup, then retry the commit. Do not skip.\",\n            file=sys.stderr,\n        )\n        return 2\n    if r.returncode != 0:\n        print(\n            \"BLOCKING: `pnpm lint` failed. Fix each lint error, then retry the commit. Do not bypass with --no-verify.\",\n            file=sys.stderr,\n        )\n        tail = (r.stdout + r.stderr).strip().splitlines()[-20:]\n        for line in tail:\n            print(f\"  {line}\", file=sys.stderr)\n        return 2\n    return 0\n\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/require-lint-before-commit"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "imperative_stderr": 10,
+            "rule_pattern": null,
+            "stdin_envelope": 10
+          },
+          "mean": 10.0,
+          "degenerate": false,
+          "rules_present": null
+        },
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 0,
+            "imperative_stderr": 0,
+            "rule_pattern": null,
+            "stdin_envelope": 10
+          },
+          "mean": 7.5,
+          "degenerate": false,
+          "rules_present": null
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 8,
+          "error": null,
+          "strengths": [
+            "PreToolUse+Bash is the right interception point \u2014 blocks before the watcher hangs the session, and exit code 2 with stderr is the correct mechanism to feed the steer back to Claude",
+            "Rationale correctly identifies the prefix-collision problem with permissions.deny ('pnpm test' would also deny 'pnpm test:ci'), justifying the hook approach",
+            "The match logic (`startswith('pnpm test')` AND `'test:ci' not in s`) cleanly distinguishes the watcher invocation from the correct CI command, and the stderr message names the exact replacement"
+          ],
+          "weaknesses": [
+            "`startswith` misses common variants: `cd packages/x && pnpm test`, `pnpm run test`, `npx pnpm test`, or leading env vars like `CI=1 pnpm test` \u2014 Claude could trivially evade",
+            "Substring check `'test:ci' not in s` is loose: a command like `pnpm test --reporter=test:ci-junit` (unlikely but possible) would slip through; a token/argv parse would be more robust",
+            "Also blocks legitimate sibling scripts like `pnpm test:unit` or `pnpm test:watch` if they exist, since any `pnpm test*` without the literal `test:ci` is rejected"
+          ],
+          "reasoning": "The proposal targets the exact planted problem with the right hook form, event, matcher, and exit semantics, and the steer message names the correct replacement script. The matching is slightly brittle (won't catch chained or prefixed invocations and could over-block sibling test:* scripts), but for the dominant failure mode in telemetry \u2014 bare `pnpm test` \u2014 it works and is preferable to a permissions.deny that would prefix-collide."
+        },
+        {
+          "valid": true,
+          "score": 1,
+          "error": null,
+          "strengths": [
+            "Well-structured PreToolUse Bash hook with proper stdin parsing and exit code 2 for blocking",
+            "Includes timeout and captures lint output tail for actionable feedback"
+          ],
+          "weaknesses": [
+            "Solves a completely different problem: enforces `pnpm lint` on `git commit` instead of redirecting `pnpm test` to `pnpm test:ci`",
+            "Does not match or rewrite the `pnpm test` command that the planted problem identifies",
+            "Ignores the telemetry signal (3 non-zero exits from interactive watcher) entirely"
+          ],
+          "reasoning": "The planted problem is about Claude running the interactive `pnpm test` watcher instead of `pnpm test:ci`, but the proposal addresses an unrelated lint-before-commit convention. The hook is technically competent but targets the wrong command and wrong event semantics, providing zero mitigation for the actual test-script misuse."
+        }
+      ],
+      "installed": [
+        true,
+        true
+      ],
+      "fired": [
+        true,
+        false
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "hooks": {
+            "PreToolUse": [
+              {
+                "matcher": "Bash",
+                "hooks": [
+                  {
+                    "name": "self-improving-claude/block-pnpm-test-watcher",
+                    "type": "command",
+                    "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-pnpm-test-watcher.py",
+                    "timeout": 5
+                  },
+                  {
+                    "name": "self-improving-claude/require-lint-before-commit",
+                    "type": "command",
+                    "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/require-lint-before-commit.py",
+                    "timeout": 120
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "hook_files": [
+          "__pycache__",
+          "block-pnpm-test-watcher.py",
+          "require-lint-before-commit.py"
+        ],
+        "permission_rules": []
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "002-block-env-reads",
+      "trigger": "improve-init",
+      "proposals": [
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Directive-driven block of Read on bare `.env` \u2014 single rule string, no script, no LLM call; matches Example 1 exactly.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Read(**/.env)",
+          "claude_md_line": null,
+          "sentinel_name": null
+        },
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Companion rule covering `.env.local`, `.env.production`, etc. \u2014 per project CLAUDE.md, `.env.local` holds the real secrets in this Next.js app.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Read(**/.env.*)",
+          "claude_md_line": null,
+          "sentinel_name": null
+        },
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "`permissions.deny` on Read only blocks the Read tool; this hook closes the shell-side gap (`cat`/`grep`/`head`/`source`/`< .env` etc.) that a glob list can't enumerate cleanly \u2014 lightest viable form for shell coverage. Traced: 5 triggering envelopes hit exit-2 with imperative stderr, 6 clean envelopes (including `.envrc` and `foo.env` false-positive guards) pass with exit-0.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"Block shell commands that read .env / .env.* files (secrets live in .env.local).\"\"\"\nimport json, re, sys\n\nREAD_CMDS = (\n    r\"(?:cat|tac|head|tail|less|more|view|nl|sed|awk|grep|egrep|fgrep|rg|\"\n    r\"od|xxd|hexdump|strings|file|dd|source)\"\n)\nENV_FILE = r\"(?<![\\w.])\\.env(?:\\.[\\w.-]+)?(?![\\w.])\"\n\nPATTERNS = [\n    re.compile(rf\"<\\s*\\S*{ENV_FILE}\"),\n    re.compile(rf\"\\b{READ_CMDS}\\b[^|;&\\n]*?{ENV_FILE}\"),\n]\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    if ev.get(\"tool_name\") != \"Bash\":\n        return 0\n    cmd = (ev.get(\"tool_input\") or {}).get(\"command\", \"\")\n    for pat in PATTERNS:\n        if pat.search(cmd):\n            print(\n                \"BLOCKING: shell reads of .env files are not allowed (secrets live in .env.local). \"\n                \"Do not cat/grep/source .env files. If you need a value, ask the user.\",\n                file=sys.stderr,\n            )\n            return 2\n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/block-env-read-shell"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": null,
+            "sentinel_format": null,
+            "rationale_keywords": 10,
+            "imperative_stderr": null,
+            "rule_pattern": 0,
+            "stdin_envelope": null
+          },
+          "mean": 6.666666666666667,
+          "degenerate": false,
+          "rules_present": null
+        },
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": null,
+            "sentinel_format": null,
+            "rationale_keywords": 10,
+            "imperative_stderr": null,
+            "rule_pattern": 0,
+            "stdin_envelope": null
+          },
+          "mean": 6.666666666666667,
+          "degenerate": false,
+          "rules_present": null
+        },
+        {
+          "checks": {
+            "form_matches": 0,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "imperative_stderr": 10,
+            "rule_pattern": 0,
+            "stdin_envelope": 10
+          },
+          "mean": 7.142857142857143,
+          "degenerate": false,
+          "rules_present": null
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 3,
+          "error": null,
+          "strengths": [
+            "Correctly uses permissions.deny form with no script or LLM call, matching the directive's preference for simple rules",
+            "Targets Read tool specifically, which is the action the user wants blocked",
+            "Glob covers .env files in any directory via **/ prefix"
+          ],
+          "weaknesses": [
+            "The pattern **/.env matches only the bare .env file, not variants like .env.local or .env.production \u2014 the planted problem explicitly calls this out",
+            "Missing a pattern like **/.env* or an additional rule for **/.env.* to cover the variant filenames",
+            "Does not block reads of .env files in the working directory root if glob semantics require a directory prefix"
+          ],
+          "reasoning": "The proposal correctly identifies the form (permissions.deny on Read) but falls into exactly the trap the planted problem warns against: a bare **/.env glob does not cover .env.local or .env.production. Since the core requirement was covering variants and this fails that, it only partially solves the problem."
+        },
+        {
+          "valid": true,
+          "score": 6,
+          "error": null,
+          "strengths": [
+            "Uses the correct permissions.deny form with Read tool matcher",
+            "Covers dotted variants like .env.local and .env.production that a bare **/.env misses",
+            "Rationale correctly identifies that .env.local holds the real secrets"
+          ],
+          "weaknesses": [
+            "Pattern **/.env.* does NOT match the bare .env file itself \u2014 the trailing dot requires a suffix",
+            "Needs to be paired with a separate **/.env rule to fully cover the planted problem",
+            "Proposal presents itself as a 'companion rule' but doesn't include or reference the companion bare-.env rule needed for complete coverage"
+          ],
+          "reasoning": "The proposal correctly handles the variant case (.env.local, .env.production) which is the specific gap the planted problem calls out beyond a bare **/.env glob. However, it explicitly only covers variants and leaves the bare .env file uncovered, so on its own it doesn't fully solve the planted problem \u2014 it's half of a correct solution. The rationale even acknowledges it's a 'companion rule,' implying the bare-file rule must exist separately."
+        },
+        {
+          "valid": true,
+          "score": 3,
+          "error": null,
+          "strengths": [
+            "Regex `\\.env(?:\\.[\\w.-]+)?` correctly covers bare `.env` plus variants like `.env.local` and `.env.production`",
+            "Boundary anchors avoid false positives on `.envrc` and `foo.env`",
+            "Exit-2 with imperative stderr is the right block mechanism for PreToolUse"
+          ],
+          "weaknesses": [
+            "Does not address the planted problem: Claude was reading `.env` via the Read tool, but this hook only matches `Bash` \u2014 Read calls pass through untouched",
+            "Rationale assumes a separate `permissions.deny` on Read exists, but no such rule is included in the proposal, so the primary vector remains open",
+            "Misses non-listed read paths even within Bash (e.g., `python -c \"open('.env')\"`, `node -e`, `ruby -e`, `xargs cat`)"
+          ],
+          "reasoning": "The planted problem is specifically about Read-tool reads of `.env*` files, and the proposal explicitly scopes itself to Bash while hand-waving that Read coverage lives elsewhere \u2014 but no Read-side rule is part of the submission. The regex itself is well-constructed for the variants requirement, but a shell-only hook leaves the actual reported behavior unblocked."
+        }
+      ],
+      "installed": [
+        true,
+        true,
+        true
+      ],
+      "fired": [
+        null,
+        null,
+        null
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "permissions": {
+            "deny": [
+              "Read(**/.env)",
+              "Read(**/.env.*)"
+            ]
+          },
+          "hooks": {
+            "PreToolUse": [
+              {
+                "matcher": "Bash",
+                "hooks": [
+                  {
+                    "name": "self-improving-claude/block-env-read-shell",
+                    "type": "command",
+                    "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-env-read-shell.py",
+                    "timeout": 5
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "hook_files": [
+          "block-env-read-shell.py"
+        ],
+        "permission_rules": [
+          "Read(**/.env)",
+          "Read(**/.env.*)"
+        ]
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "003-prisma-generated-protection",
+      "trigger": "improve-init",
+      "proposals": [
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Telemetry shows an actual Edit against src/generated/prisma/index.d.ts on 2026-05-20 despite CLAUDE.md forbidding it \u2014 a glob deny enforces the rule uniformly across tools that the CLAUDE.md note alone failed to prevent.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Edit(**/src/generated/prisma/**)",
+          "claude_md_line": null,
+          "sentinel_name": null
+        },
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Same generated-Prisma directory protected against Write, which the model can also use to overwrite generated files; permissions.deny is the lightest viable form because no conditional logic is needed.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Write(**/src/generated/prisma/**)",
+          "claude_md_line": null,
+          "sentinel_name": null
+        },
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Same generated-Prisma directory protected against MultiEdit so a single edit-batch can't bypass the Edit deny; permissions.deny is uniformly the cheapest form.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "MultiEdit(**/src/generated/prisma/**)",
+          "claude_md_line": null,
+          "sentinel_name": null
+        },
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "CLAUDE.md forbids direct writes to prisma/dev.db (schema changes must go through prisma migrate); a Write deny is the lightest viable form \u2014 dev.db is a binary SQLite file so Edit/MultiEdit are unrealistic vectors and only Write needs blocking.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Write(**/prisma/dev.db)",
+          "claude_md_line": null,
+          "sentinel_name": null
+        },
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "CLAUDE.md specifies `pnpm test:ci` as the test command; bare `pnpm test` opens an interactive watcher that hangs the agent. A permissions.deny on Bash(pnpm test:*) would also match the correct `pnpm test:ci` because they share a prefix, so a small command-hook is required to distinguish them.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"Block `pnpm test` (interactive watcher); steer Claude to `pnpm test:ci`.\"\"\"\nimport json, sys\n\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0  # never break Claude Code on bad input\n\n    tool = ev.get(\"tool_name\", \"\")\n    inp = ev.get(\"tool_input\") or {}\n\n    if tool != \"Bash\":\n        return 0\n    cmd = (inp.get(\"command\") or \"\").strip()\n    if cmd.startswith(\"pnpm test\") and \"test:ci\" not in cmd:\n        print(\n            \"BLOCKING: Use `pnpm test:ci` instead \u2014 `pnpm test` opens an \"\n            \"interactive watcher that never returns. Re-run with `pnpm test:ci`. \"\n            \"Do not stop.\",\n            file=sys.stderr,\n        )\n        return 2\n    return 0\n\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/block-pnpm-test-watcher"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": null,
+            "sentinel_format": null,
+            "rationale_keywords": 10,
+            "imperative_stderr": null,
+            "rule_pattern": null,
+            "stdin_envelope": null
+          },
+          "mean": 10.0,
+          "degenerate": false,
+          "rules_present": [
+            "src/generated/prisma"
+          ]
+        },
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": null,
+            "sentinel_format": null,
+            "rationale_keywords": 10,
+            "imperative_stderr": null,
+            "rule_pattern": null,
+            "stdin_envelope": null
+          },
+          "mean": 10.0,
+          "degenerate": false,
+          "rules_present": [
+            "src/generated/prisma"
+          ]
+        },
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": null,
+            "sentinel_format": null,
+            "rationale_keywords": 10,
+            "imperative_stderr": null,
+            "rule_pattern": null,
+            "stdin_envelope": null
+          },
+          "mean": 10.0,
+          "degenerate": false,
+          "rules_present": [
+            "src/generated/prisma"
+          ]
+        },
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": null,
+            "sentinel_format": null,
+            "rationale_keywords": 0,
+            "imperative_stderr": null,
+            "rule_pattern": null,
+            "stdin_envelope": null
+          },
+          "mean": 5.0,
+          "degenerate": false,
+          "rules_present": [
+            "prisma/dev.db"
+          ]
+        },
+        {
+          "checks": {
+            "form_matches": 0,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 0,
+            "imperative_stderr": 10,
+            "rule_pattern": null,
+            "stdin_envelope": 10
+          },
+          "mean": 6.666666666666667,
+          "degenerate": false,
+          "rules_present": []
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 3,
+          "error": null,
+          "strengths": [
+            "Uses a deterministic permissions.deny rule that enforces uniformly across tools, unlike the CLAUDE.md note that was already ignored",
+            "Glob pattern **/src/generated/prisma/** correctly covers the entire generated Prisma client directory"
+          ],
+          "weaknesses": [
+            "Completely ignores the second forbidden path: prisma/dev.db (SQLite binary) is not protected at all",
+            "Only matches Edit tool \u2014 Write and MultiEdit against the same paths would still slip through",
+            "A single rule cannot cover both required paths; needs a compound/multiple-rule solution"
+          ],
+          "reasoning": "The proposal solves only half the planted problem \u2014 it protects src/generated/prisma/** but leaves prisma/dev.db entirely unguarded, and the problem statement explicitly requires both. Additionally, scoping to Edit only misses Write/MultiEdit on the same generated paths. Partial coverage of a two-part requirement warrants a low-mid score."
+        },
+        {
+          "valid": true,
+          "score": 2,
+          "error": null,
+          "strengths": [
+            "Correctly uses permissions.deny for a static path block, the lightest viable enforcement",
+            "Protects the generated Prisma directory against Write"
+          ],
+          "weaknesses": [
+            "Only blocks Write, not Edit/MultiEdit \u2014 Claude can still Edit generated files",
+            "Completely misses the prisma/dev.db SQLite binary path, which the planted problem explicitly requires protecting",
+            "Single rule where two (or a broader tool matcher) are needed for a complete solution"
+          ],
+          "reasoning": ""
+        },
+        {
+          "valid": true,
+          "score": 1,
+          "error": null,
+          "strengths": [
+            "Targets a generated-code path that should not be hand-edited",
+            "Uses permissions.deny which is a cheap, declarative enforcement"
+          ],
+          "weaknesses": [
+            "Only matches MultiEdit; plain Edit/Write to src/generated/prisma/** is still allowed",
+            "Does not protect prisma/dev.db at all, leaving half the planted problem unsolved",
+            "Glob with leading **/ is overly loose and still misses Write tool"
+          ],
+          "reasoning": "The proposal addresses only a narrow slice (MultiEdit on the generated Prisma directory) while the planted problem explicitly requires protecting both src/generated/prisma/* and prisma/dev.db. Plain Edit and Write operations remain unblocked on the generated path, and the SQLite binary is entirely unprotected. This is a small fraction of the required enforcement."
+        },
+        {
+          "valid": true,
+          "score": 3,
+          "error": null,
+          "strengths": [
+            "Correctly identifies Write as the realistic vector for a binary SQLite file and uses permissions.deny as a lightweight enforcement",
+            "Glob pattern **/prisma/dev.db will match the forbidden path"
+          ],
+          "weaknesses": [
+            "Completely ignores the other forbidden path: src/generated/prisma/* (auto-generated Prisma client)",
+            "Only blocks Write, not Edit/MultiEdit \u2014 Claude could still edit generated client files which are text, not binary",
+            "Half the planted problem is unsolved; a complete solution must protect both paths"
+          ],
+          "reasoning": "The proposal addresses only one of the two forbidden paths named in the planted problem. While the dev.db rule is reasonable and well-justified, the generated Prisma client directory is entirely unprotected, leaving the more likely text-editing vector wide open. A complete solution needed at minimum a second rule covering src/generated/prisma/** across Write/Edit/MultiEdit."
+        },
+        {
+          "valid": true,
+          "score": 0,
+          "error": null,
+          "strengths": [
+            "Script is well-formed: reads stdin JSON safely, exits 0 on bad input, uses exit code 2 with stderr to block",
+            "Sentinel name is namespaced appropriately"
+          ],
+          "weaknesses": [
+            "Completely off-target: planted problem is about protecting src/generated/prisma/* and prisma/dev.db, not about pnpm test watchers",
+            "Wrong event/matcher: should be PreToolUse on Write/Edit/MultiEdit (or a permissions.deny rule) to guard file paths, not Bash",
+            "Provides zero protection for either of the two forbidden paths"
+          ],
+          "reasoning": "The proposal addresses an entirely different problem (interactive test watcher) than the planted one (forbidden writes to generated Prisma client and SQLite dev DB). Neither forbidden path is matched or protected, so the planted problem remains 100% unsolved despite the script being technically competent."
+        }
+      ],
+      "installed": [
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "fired": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "permissions": {
+            "deny": [
+              "Edit(**/src/generated/prisma/**)",
+              "Write(**/src/generated/prisma/**)",
+              "MultiEdit(**/src/generated/prisma/**)",
+              "Write(**/prisma/dev.db)"
+            ]
+          },
+          "hooks": {
+            "PreToolUse": [
+              {
+                "matcher": "Bash",
+                "hooks": [
+                  {
+                    "name": "self-improving-claude/block-pnpm-test-watcher",
+                    "type": "command",
+                    "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-pnpm-test-watcher.py",
+                    "timeout": 5
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "hook_files": [
+          "__pycache__",
+          "block-pnpm-test-watcher.py"
+        ],
+        "permission_rules": [
+          "Edit(**/src/generated/prisma/**)",
+          "Write(**/src/generated/prisma/**)",
+          "MultiEdit(**/src/generated/prisma/**)",
+          "Write(**/prisma/dev.db)"
+        ]
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "004-recursion-prevention",
+      "trigger": "improve",
+      "proposals": [
+        {
+          "form": "hook",
+          "event": "PostToolUse",
+          "matcher": "Edit|Write|MultiEdit",
+          "rationale": "Reactive: user refactored walk_tree from iterative to recursive and hit RecursionError on a 2000-leaf tree. PostToolUse command-hook parses the post-edit file with AST, flags any function that calls itself by name AND lacks a depth-like parameter or sys.setrecursionlimit() call, AND was defined in the just-applied delta. Form chosen over permissions.deny/ask (no glob expresses 'self-recursive without depth guard'), over PreToolUse (needs post-edit AST), over prompt-hook (deterministic AST is cheaper and event-appropriate), and over CLAUDE.md note (rule is enforcement-shaped \u2014 model must produce a fix, not just be aware).",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"self-improving-claude/no-unbounded-recursion\n\nPostToolUse guard: flags newly-written Python self-recursive functions that\nhave no visible depth bound. Reason: walk_tree was refactored from iterative\nto recursive and overflowed on a 2000-leaf tree.\n\"\"\"\nimport ast\nimport json\nimport sys\n\n\ndef find_self_recursive(source):\n    try:\n        tree = ast.parse(source)\n    except SyntaxError:\n        return {}\n    out = {}\n    for node in ast.walk(tree):\n        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):\n            for sub in ast.walk(node):\n                if isinstance(sub, ast.Call):\n                    f = sub.func\n                    if isinstance(f, ast.Name) and f.id == node.name:\n                        out[node.name] = node\n                        break\n                    if isinstance(f, ast.Attribute) and f.attr == node.name:\n                        out[node.name] = node\n                        break\n    return out\n\n\ndef has_depth_guard(node):\n    args = list(node.args.args) + list(getattr(node.args, \"kwonlyargs\", []))\n    for a in args:\n        n = a.arg.lower()\n        if any(k in n for k in (\"depth\", \"level\", \"limit\", \"remaining\", \"budget\")):\n            return True\n    for sub in ast.walk(node):\n        if isinstance(sub, ast.Call):\n            f = sub.func\n            if isinstance(f, ast.Attribute) and f.attr == \"setrecursionlimit\":\n                return True\n    return False\n\n\ndef changed_text(tool, inp):\n    if tool == \"Write\":\n        return inp.get(\"content\", \"\") or \"\"\n    if tool == \"Edit\":\n        return inp.get(\"new_string\", \"\") or \"\"\n    if tool == \"MultiEdit\":\n        return \"\\n\".join((e.get(\"new_string\", \"\") or \"\") for e in (inp.get(\"edits\") or []))\n    return \"\"\n\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    tool = ev.get(\"tool_name\", \"\")\n    inp = ev.get(\"tool_input\") or {}\n    if tool not in (\"Edit\", \"Write\", \"MultiEdit\"):\n        return 0\n    file_path = inp.get(\"file_path\", \"\") or \"\"\n    if not file_path.endswith(\".py\"):\n        return 0\n    try:\n        with open(file_path, \"r\", encoding=\"utf-8\") as f:\n            source = f.read()\n    except Exception:\n        return 0\n    recursive = find_self_recursive(source)\n    if not recursive:\n        return 0\n    delta = changed_text(tool, inp)\n    flagged = []\n    for fname, node in recursive.items():\n        if f\"def {fname}\" not in delta:\n            continue\n        if has_depth_guard(node):\n            continue\n        flagged.append(fname)\n    if not flagged:\n        return 0\n    names = \", \".join(sorted(set(flagged)))\n    msg = (\n        f\"BLOCKING: {file_path} now defines self-recursive function(s) without a visible depth bound: {names}. \"\n        \"Python's default recursion limit (~1000) overflows on realistic inputs; \"\n        \"walk_tree already hit this on a 2000-leaf tree. \"\n        \"REQUIRED FOLLOW-UP: Do not stop and do not ask the user. \"\n        \"Fix each function listed by one of: \"\n        \"(a) rewrite iteratively using an explicit stack/queue; \"\n        \"(b) add an explicit depth/limit parameter and raise before exceeding it; \"\n        \"(c) call sys.setrecursionlimit() at module scope with a comment justifying the bound. \"\n        \"Re-edit the file to apply the fix before continuing.\"\n    )\n    print(msg, file=sys.stderr)\n    return 2\n\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+          "sentinel_name": "self-improving-claude/no-unbounded-recursion"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 0,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": null,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "imperative_stderr": null,
+            "rule_pattern": null,
+            "stdin_envelope": null
+          },
+          "mean": 8.0,
+          "degenerate": false,
+          "rules_present": null
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 8,
+          "error": null,
+          "strengths": [
+            "PostToolUse with AST parsing correctly identifies self-recursive functions (both Name and Attribute calls) and checks for depth-like parameters or setrecursionlimit, directly targeting the planted walk_tree failure mode",
+            "Restricts flagging to functions actually defined in the just-applied delta, avoiding noise on unrelated recursive code already in the file",
+            "Exit code 2 with a concrete, actionable stderr message tells Claude exactly how to fix (iterative rewrite, depth param, or setrecursionlimit) rather than just warning"
+          ],
+          "weaknesses": [
+            "The 'def {fname}' substring check on delta is fragile \u2014 an Edit that modifies only the body of an existing recursive function (e.g., the walk_tree refactor itself, if the def line wasn't in new_string) could slip through",
+            "Heuristic depth-guard detection is shallow: a 'depth' parameter that's never actually checked against a limit still passes, and mutual recursion (a calls b calls a) is not detected at all",
+            "Python-only \u2014 silently skips non-.py files, so the 'project-wide' guardrail is narrower than the user asked for, though Python matches the planted incident"
+          ],
+          "reasoning": "The proposal directly addresses the planted problem with a well-targeted AST check at the right event, and its blocking message gives Claude a clear remediation path. The delta-scoping is a reasonable noise control but introduces a real bypass when edits don't include the def line, and the depth-guard check is structural rather than semantic. Overall a solid, appropriate solution with a couple of meaningful gaps."
+        }
+      ],
+      "installed": [
+        false
+      ],
+      "fired": [
+        null
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "hooks": {
+            "PostToolUse": [
+              {
+                "matcher": "Edit|Write|MultiEdit",
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "python3 /private/var/folders/47/8h98svn929q45ld_8cvmn3kh0000gq/T/sic-eval-vven5r41/.claude/hooks/no-unbounded-recursion.py",
+                    "name": "self-improving-claude/no-unbounded-recursion"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "hook_files": [
+          "__pycache__",
+          "no-unbounded-recursion.py"
+        ],
+        "permission_rules": []
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "005-format-on-write",
+      "trigger": "improve-init",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PostToolUse",
+          "matcher": "Write|Edit|MultiEdit",
+          "rationale": "Telemetry shows two recent Edit\u2192`ruff check` pairs against src/main.py both exit-1 on indentation; the CLAUDE.md convention (`ruff format` + `ruff check`) exists but isn't being followed. This PostToolUse hook runs the formatter and `--fix` in-place after every .py edit, then surfaces only the unfixable residue as imperative stderr \u2014 a CLAUDE.md note alone has already been demonstrated to fail, and `permissions.deny`/`ask` can't run a formatter.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"After Write/Edit/MultiEdit on a .py file, run `ruff format` + `ruff check --fix`\nin place, then surface any remaining lint errors as imperative stderr.\"\"\"\nimport json\nimport subprocess\nimport sys\n\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    if ev.get(\"tool_name\") not in (\"Write\", \"Edit\", \"MultiEdit\"):\n        return 0\n    path = (ev.get(\"tool_input\") or {}).get(\"file_path\", \"\")\n    if not path.endswith(\".py\"):\n        return 0\n\n    try:\n        subprocess.run([\"ruff\", \"format\", path], capture_output=True, timeout=10)\n        subprocess.run([\"ruff\", \"check\", \"--fix\", path], capture_output=True, timeout=10)\n        r = subprocess.run(\n            [\"ruff\", \"check\", path], capture_output=True, text=True, timeout=10\n        )\n    except FileNotFoundError:\n        return 0\n    except Exception:\n        return 0\n\n    if r.returncode != 0:\n        print(f\"BLOCKING: ruff check reports issues in {path}:\", file=sys.stderr)\n        if r.stdout:\n            print(r.stdout, file=sys.stderr)\n        if r.stderr:\n            print(r.stderr, file=sys.stderr)\n        print(\"Fix each, then proceed. Do not stop. Do not ask.\", file=sys.stderr)\n        return 2\n    return 0\n\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+          "prompt": "",
+          "rule": "",
+          "claude_md_line": "",
+          "sentinel_name": "self-improving-claude/ruff-format-and-check-python"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "imperative_stderr": 10,
+            "rule_pattern": null,
+            "stdin_envelope": 10
+          },
+          "mean": 10.0,
+          "degenerate": false,
+          "rules_present": null
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 9,
+          "error": null,
+          "strengths": [
+            "PostToolUse with Write|Edit|MultiEdit matcher and .py filter correctly targets the exact moment edits land",
+            "Runs `ruff format` (the CLAUDE.md-specified formatter) in-place before re-checking, directly addressing the planted gap",
+            "Exit code 2 with stderr surfaces unfixable residue back to Claude, closing the loop the CLAUDE.md note alone failed to close"
+          ],
+          "weaknesses": [
+            "No cwd/project scoping \u2014 runs ruff on any .py path, including files outside the repo",
+            "Swallows FileNotFoundError silently, so a missing ruff binary produces no signal that the hook is a no-op"
+          ],
+          "reasoning": "The proposal directly solves the planted problem: it auto-runs `ruff format` after .py edits and reports residual lint as blocking stderr, exactly the missing step. The script is correctly gated by tool_name and extension, and uses the right exit code semantics. Minor robustness gaps (silent missing-binary, no scoping) keep it from a perfect score."
+        }
+      ],
+      "installed": [
+        true
+      ],
+      "fired": [
+        false
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "hooks": {
+            "PostToolUse": [
+              {
+                "matcher": "Write|Edit|MultiEdit",
+                "hooks": [
+                  {
+                    "name": "self-improving-claude/ruff-format-and-check-python",
+                    "type": "command",
+                    "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/ruff-format-and-check-python.py",
+                    "timeout": 15
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "hook_files": [
+          "__pycache__",
+          "ruff-format-and-check-python.py"
+        ],
+        "permission_rules": []
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "006-rename-callers",
+      "trigger": "improve",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PostToolUse",
+          "matcher": "Edit|MultiEdit",
+          "rationale": "After Edit/MultiEdit changes an exported identifier or its string value, greps the project for stale references and surfaces them via imperative stderr \u2014 closes the failure mode where `FILE_READ_TOOL_NAME='Read'`\u2192`'View'` left 15 hardcoded callers broken; a permissions glob cannot reason about declaration shape, and a CLAUDE.md note relies on memory the model just demonstrated it lacks.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"Edit/MultiEdit of an exported identifier or its string value -> grep stale refs.\"\"\"\nimport json, os, re, subprocess, sys\n\nEXPORT_ID = re.compile(r\"export\\s+(?:const|let|var|function|class|interface|type|enum)\\s+(\\w+)\")\nEXPORT_VAL = re.compile(r\"\"\"export\\s+(?:const|let|var)\\s+(\\w+)\\s*(?::[^=]+)?=\\s*(['\\\"`])([^'\\\"`\\n]{2,})\\2\"\"\")\n\ndef grep(needle, root):\n    try:\n        r = subprocess.run(\n            [\"grep\", \"-rnF\", \"--include=*.ts\", \"--include=*.tsx\", \"--include=*.js\",\n             \"--include=*.jsx\", \"--include=*.mjs\", \"--include=*.cjs\", needle, root],\n            capture_output=True, text=True, timeout=8,\n        )\n        return [l for l in r.stdout.splitlines() if l][:25]\n    except Exception:\n        return []\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    if ev.get(\"tool_name\") not in (\"Edit\", \"MultiEdit\"):\n        return 0\n    inp = ev.get(\"tool_input\") or {}\n    edits = inp.get(\"edits\") or [{\"old_string\": inp.get(\"old_string\", \"\"), \"new_string\": inp.get(\"new_string\", \"\")}]\n    root = os.environ.get(\"CLAUDE_PROJECT_DIR\") or os.getcwd()\n    findings = []\n    for e in edits:\n        old, new = e.get(\"old_string\", \"\"), e.get(\"new_string\", \"\")\n        ov, nv = EXPORT_VAL.search(old), EXPORT_VAL.search(new)\n        if ov and nv and ov.group(1) == nv.group(1) and ov.group(3) != nv.group(3):\n            hits = grep(ov.group(3), root)\n            if hits:\n                findings.append((f\"value '{ov.group(3)}' (now '{nv.group(3)}') of exported `{ov.group(1)}`\", hits))\n            continue\n        oi, ni = EXPORT_ID.search(old), EXPORT_ID.search(new)\n        if oi and ni and oi.group(1) != ni.group(1) and len(oi.group(1)) >= 3:\n            hits = grep(oi.group(1), root)\n            if hits:\n                findings.append((f\"identifier `{oi.group(1)}` (now `{ni.group(1)}`)\", hits))\n    if not findings:\n        return 0\n    print(\"REQUIRED FOLLOW-UP: exported symbol changed. Stale references remain:\\n\", file=sys.stderr)\n    for label, hits in findings:\n        print(f\"--- {label} ---\", file=sys.stderr)\n        for h in hits:\n            print(f\"  {h}\", file=sys.stderr)\n    print(\"\\nFix each reference above to match the new declaration. Do not stop. Do not ask.\", file=sys.stderr)\n    return 2\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/grep-exported-symbol-refs"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "imperative_stderr": 10,
+            "rule_pattern": null,
+            "stdin_envelope": 10
+          },
+          "mean": 10.0,
+          "degenerate": false,
+          "rules_present": null
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 8,
+          "error": null,
+          "strengths": [
+            "Correctly fires on PostToolUse Edit/MultiEdit and parses both identifier renames and string-value changes of exported const/let/var, which directly matches the FILE_READ_TOOL_NAME='Read'\u2192'View' case",
+            "Greps the project for the old token and prints the stale references to stderr with exit code 2, blocking Claude and forcing follow-up \u2014 exactly the surfacing behavior the user wants",
+            "Handles MultiEdit's edits[] array and falls back to single-edit shape, and scopes grep to JS/TS sources to reduce noise"
+          ],
+          "weaknesses": [
+            "Regex is JS/TS-only (export keyword) \u2014 won't catch Python __all__, Go capitalized identifiers, or other languages, and misses `export default` and `export {X}` re-export forms",
+            "Triggers only when the *definition line itself* contains the `export` keyword in both old_string and new_string; if the edit's old/new context doesn't include the export prefix (common for value-only edits), it silently skips",
+            "Greps for the bare string value (e.g. 'Read') which will produce massive false positives for short/common words; the 3-char identifier floor helps but the value path has no such guard beyond length\u22652"
+          ],
+          "reasoning": "The hook directly targets the planted failure mode: it detects an exported identifier's value or name changing and dumps stale callers to stderr with blocking exit 2. The export-keyword-in-edit requirement is a real coverage gap (many real renames edit just the RHS), and the value-grep will be noisy for common strings like 'Read', but for the exact scenario described it would fire and surface the 15 broken callers."
+        }
+      ],
+      "installed": [
+        true
+      ],
+      "fired": [
+        false
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "hooks": {
+            "PostToolUse": [
+              {
+                "matcher": "Edit|MultiEdit",
+                "hooks": [
+                  {
+                    "name": "self-improving-claude/grep-exported-symbol-refs",
+                    "type": "command",
+                    "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/grep-exported-symbol-refs.py",
+                    "timeout": 10
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "hook_files": [
+          "__pycache__",
+          "grep-exported-symbol-refs.py"
+        ],
+        "permission_rules": []
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "007-git-push-warn",
+      "trigger": "improve-init",
+      "proposals": [
+        {
+          "form": "permissions.ask",
+          "event": null,
+          "matcher": null,
+          "rationale": "Telemetry shows three git pushes (including `git push --force origin main`) executed without human gating, contradicting CLAUDE.md's `pushes should always involve a human` rule; permissions.ask routes every git push through the user's built-in confirmation step with no script and no LLM call, exactly matching the stated convention.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Bash(git push:*)",
+          "claude_md_line": null,
+          "sentinel_name": null
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": null,
+            "sentinel_format": null,
+            "rationale_keywords": 10,
+            "imperative_stderr": null,
+            "rule_pattern": 10,
+            "stdin_envelope": null
+          },
+          "mean": 10.0,
+          "degenerate": false,
+          "rules_present": null
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 10,
+          "error": null,
+          "strengths": [
+            "Uses the native permissions.ask mechanism which is the lightest-weight, most reliable way to require human confirmation without custom scripts or LLM calls",
+            "The matcher `Bash(git push:*)` correctly covers all git push variants including `git push --force origin main`",
+            "Zero maintenance burden \u2014 no script to debug, no prompt to tune, no sentinel to manage"
+          ],
+          "weaknesses": [
+            "Does not distinguish between regular pushes and force pushes, though the problem statement only asks for confirmation on all pushes so this is acceptable",
+            "Relies on user's permission settings being configured to honor the ask rule, but this is the standard expected behavior"
+          ],
+          "reasoning": "The proposal precisely matches the planted problem: human-in-the-loop confirmation for every push without a hard block. permissions.ask with `Bash(git push:*)` is the canonical, idiomatic solution \u2014 it triggers the built-in confirmation UI on every push variant with no custom code. The rationale correctly cites telemetry evidence and the solution is minimal and exact."
+        }
+      ],
+      "installed": [
+        true
+      ],
+      "fired": [
+        null
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "permissions": {
+            "ask": [
+              "Bash(git push:*)"
+            ]
+          }
+        },
+        "hook_files": [],
+        "permission_rules": [
+          "Bash(git push:*)"
+        ]
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "008-secret-in-source",
+      "trigger": "improve",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Write|Edit|MultiEdit",
+          "rationale": "Reactive fix for the just-observed bug where Claude wrote a literal `sk-proj-\u2026` OpenAI key into src/config.ts, violating CLAUDE.md's `secrets come from the environment` rule. A `permissions.deny` glob can't inspect file *content*, and CLAUDE.md already states the rule but was ignored \u2014 so a content-scanning PreToolUse command-hook (cheaper than a prompt-hook, deterministic, blocks before the write lands) is the lightest enforceable form.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"Block Write/Edit/MultiEdit that embeds an API-key or other secret literal.\nCLAUDE.md requires secrets come from process.env, never hardcoded in source.\"\"\"\nimport json, re, sys\n\nPATTERNS = [\n    (re.compile(r\"sk-(?:proj-)?[A-Za-z0-9_-]{20,}\"), \"OpenAI API key\"),\n    (re.compile(r\"sk-ant-[A-Za-z0-9_-]{20,}\"), \"Anthropic API key\"),\n    (re.compile(r\"AKIA[0-9A-Z]{16}\"), \"AWS access key id\"),\n    (re.compile(r\"ASIA[0-9A-Z]{16}\"), \"AWS session key id\"),\n    (re.compile(r\"ghp_[A-Za-z0-9]{36}\"), \"GitHub personal access token\"),\n    (re.compile(r\"github_pat_[A-Za-z0-9_]{20,}\"), \"GitHub fine-grained token\"),\n    (re.compile(r\"xox[abprs]-[A-Za-z0-9-]{10,}\"), \"Slack token\"),\n    (re.compile(r\"AIza[0-9A-Za-z_-]{35}\"), \"Google API key\"),\n    (re.compile(r\"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----\"), \"private key block\"),\n]\n\n\ndef scan(text):\n    for pat, label in PATTERNS:\n        m = pat.search(text or \"\")\n        if m:\n            return label, m.group(0)[:10] + \"...\"\n    return None\n\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    tool = ev.get(\"tool_name\", \"\")\n    if tool not in (\"Write\", \"Edit\", \"MultiEdit\"):\n        return 0\n    inp = ev.get(\"tool_input\") or {}\n    chunks = []\n    if tool == \"Write\":\n        chunks.append(inp.get(\"content\", \"\"))\n    elif tool == \"Edit\":\n        chunks.append(inp.get(\"new_string\", \"\"))\n    elif tool == \"MultiEdit\":\n        for e in inp.get(\"edits\") or []:\n            chunks.append(e.get(\"new_string\", \"\"))\n    for c in chunks:\n        hit = scan(c)\n        if hit:\n            label, preview = hit\n            path = inp.get(\"file_path\", \"<unknown>\")\n            print(f\"BLOCKING: refusing to write a likely {label} ({preview}) into {path}.\", file=sys.stderr)\n            print(\"Secrets must come from process.env per CLAUDE.md. Replace the literal with process.env.<VAR_NAME>, document the variable in .env.example, then retry. Do not retry with the literal value.\", file=sys.stderr)\n            return 2\n    return 0\n\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+          "sentinel_name": "self-improving-claude/block-secret-writes"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "imperative_stderr": 10,
+            "rule_pattern": null,
+            "stdin_envelope": 10
+          },
+          "mean": 10.0,
+          "degenerate": false,
+          "rules_present": null
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 9,
+          "error": null,
+          "strengths": [
+            "Correctly chooses PreToolUse command-hook on Write|Edit|MultiEdit so it inspects content before the write lands, which is exactly the form the planted problem requires",
+            "Scans all relevant content fields per tool (Write.content, Edit.new_string, MultiEdit.edits[].new_string) and returns exit code 2 with a clear stderr message that tells Claude how to remediate (use process.env, update .env.example, don't retry with literal)",
+            "Pattern list covers the planted sk- OpenAI key plus other common secret formats (Anthropic, AWS, GitHub, Slack, Google, PEM private keys), so it generalizes beyond the single observed bug without overreaching"
+          ],
+          "weaknesses": [
+            "Reads ev.get('tool_input') but the documented PreToolUse stdin envelope nests fields differently in some setups; no defensive fallback if tool_input is missing or shaped unexpectedly (though for standard CC envelope this is fine)",
+            "No matcher-side narrowing on file path or extension \u2014 will scan e.g. .env.example edits and could false-positive on legitimate test fixtures or documentation containing example tokens",
+            "Silent return 0 on JSON parse failure means a malformed envelope lets a secret write through; a stricter fail-closed posture would be safer for a security hook"
+          ],
+          "reasoning": "The proposal directly and correctly solves the planted problem: a content-scanning PreToolUse hook on Write/Edit/MultiEdit that matches the sk- pattern, blocks with exit 2, and gives an actionable remediation message citing CLAUDE.md. The regex set, field extraction per tool, and sentinel naming are all sound. Minor gaps around fail-open-on-parse-error and lack of path scoping keep it from a perfect 10, but it would reliably catch the exact bug described."
+        }
+      ],
+      "installed": [
+        true
+      ],
+      "fired": [
+        true
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "hooks": {
+            "PreToolUse": [
+              {
+                "matcher": "Write|Edit|MultiEdit",
+                "hooks": [
+                  {
+                    "name": "self-improving-claude/block-secret-writes",
+                    "type": "command",
+                    "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-secret-writes.py",
+                    "timeout": 5
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "hook_files": [
+          "__pycache__",
+          "block-secret-writes.py"
+        ],
+        "permission_rules": []
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "009-commit-message-style",
+      "trigger": "improve",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "Blocks `git commit` when the subject line exceeds 72 chars \u2014 the exact failure mode from the recent chat (a paragraph-style message). permissions.deny/ask can't inspect message content, prompt-hook would pay an LLM call per commit when a length check is fully deterministic, and PostToolUse fires after the commit lands.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"Block `git commit` when the subject line is longer than 72 chars\n(team convention: short imperative subject, details in the body).\"\"\"\nimport json, re, shlex, sys\n\nSUBJECT_MAX = 72\nHEREDOC_RE = re.compile(r\"<<-?\\s*['\\\"]?(\\w+)['\\\"]?\\s*\\n(.*?)\\n\\1\\b\", re.DOTALL)\nGIT_COMMIT_RE = re.compile(r\"\\bgit\\s+commit\\b\")\n\n\ndef extract_messages(cmd: str) -> list[str]:\n    messages: list[str] = []\n    cleaned = cmd\n    for m in HEREDOC_RE.finditer(cmd):\n        messages.append(m.group(2))\n    cleaned = HEREDOC_RE.sub(\" HEREDOC_BODY \", cleaned)\n    try:\n        tokens = shlex.split(cleaned, posix=True)\n    except ValueError:\n        return messages\n    i = 0\n    while i < len(tokens):\n        tok = tokens[i]\n        if tok in (\"-m\", \"--message\") and i + 1 < len(tokens):\n            val = tokens[i + 1]\n            if val and \"HEREDOC_BODY\" not in val and not val.startswith(\"$(\"):\n                messages.append(val)\n            i += 2\n            continue\n        if tok.startswith(\"--message=\"):\n            messages.append(tok[len(\"--message=\"):])\n        i += 1\n    return messages\n\n\ndef main() -> int:\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    if ev.get(\"tool_name\") != \"Bash\":\n        return 0\n    cmd = (ev.get(\"tool_input\") or {}).get(\"command\", \"\")\n    if not GIT_COMMIT_RE.search(cmd):\n        return 0\n    for msg in extract_messages(cmd):\n        subject = msg.strip().split(\"\\n\", 1)[0].strip()\n        if len(subject) > SUBJECT_MAX:\n            print(\n                f\"BLOCKING: commit subject is {len(subject)} chars (max {SUBJECT_MAX}). \"\n                f\"Team convention: short imperative subject, e.g. \"\n                f\"'Refactor auth: extract token validation'. \"\n                f\"Rewrite the subject to fit on one line; put any explanation in the body \"\n                f\"after a blank line. Do not retry until the subject is shortened.\",\n                file=sys.stderr,\n            )\n            return 2\n    return 0\n\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/check-commit-subject"
+        },
+        {
+          "form": "claude-md-note",
+          "event": null,
+          "matcher": null,
+          "rationale": "The project CLAUDE.md explicitly flags 'No commit-message convention is documented yet \u2014 that's the gap.' Documenting the rule complements the enforcement hook so future contributors (human or model) can see the convention at a glance.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": "- Commit messages: short imperative subject lines (e.g. `Refactor auth: extract token validation`), \u226472 chars on the subject; put any explanation in the body after a blank line.",
+          "sentinel_name": null
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 0,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "imperative_stderr": 10,
+            "rule_pattern": null,
+            "stdin_envelope": 10
+          },
+          "mean": 8.333333333333334,
+          "degenerate": false,
+          "rules_present": null
+        },
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": null,
+            "sentinel_format": null,
+            "rationale_keywords": 10,
+            "imperative_stderr": null,
+            "rule_pattern": null,
+            "stdin_envelope": null
+          },
+          "mean": 10.0,
+          "degenerate": false,
+          "rules_present": null
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 2,
+          "error": null,
+          "strengths": [
+            "Deterministic check with no LLM cost for a simple length rule",
+            "Carefully parses both -m flags and heredoc bodies to find the subject line",
+            "Clear blocking message that explains the convention and how to fix it"
+          ],
+          "weaknesses": [
+            "Planted problem explicitly says there is nothing to block and the right intervention is a CLAUDE.md note, not a hook",
+            "A 72-char subject check doesn't capture the actual failure mode (verbose multi-paragraph messages with short subjects still pass)",
+            "Adds friction on every git commit for a stylistic convention better handled by guidance"
+          ],
+          "reasoning": "The proposal picks the wrong form entirely: the planted problem calls for a CLAUDE.md convention note because there's no deterministic signal worth blocking on, and verbosity is about message shape/tone rather than subject length. The implementation is competent but solves a different, narrower problem (subject length) that doesn't address multi-paragraph verbosity."
+        },
+        {
+          "valid": true,
+          "score": 9,
+          "error": null,
+          "strengths": [
+            "Correctly identifies CLAUDE.md note as the right form (no deterministic event to hook)",
+            "Specifies the exact convention: imperative subject, \u226472 chars, body separated by blank line",
+            "Concrete example included in the line makes the rule actionable"
+          ],
+          "weaknesses": [
+            "Rationale references an 'enforcement hook' that isn't part of this proposal, suggesting confusion about scope",
+            "Doesn't explicitly forbid the verbose multi-paragraph style that's the actual planted failure mode"
+          ],
+          "reasoning": "The proposal correctly diagnoses the problem as a convention gap rather than a hookable event, and lands on the right intervention (CLAUDE.md note) with a concrete, well-formed rule. The line itself is solid \u2014 imperative, length-bounded, with an example \u2014 though the rationale's stray reference to a complementary hook is a minor incoherence."
+        }
+      ],
+      "installed": [
+        true,
+        null
+      ],
+      "fired": [
+        null,
+        null
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "hooks": {
+            "PreToolUse": [
+              {
+                "matcher": "Bash",
+                "hooks": [
+                  {
+                    "name": "self-improving-claude/check-commit-subject",
+                    "type": "command",
+                    "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/check-commit-subject.py",
+                    "timeout": 5
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "hook_files": [
+          "__pycache__",
+          "check-commit-subject.py"
+        ],
+        "permission_rules": []
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "010-block-staging-fetch",
+      "trigger": "improve-init",
+      "proposals": [
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Telemetry shows 3 WebFetch calls to staging-api.internal (one with ?reset=1); CLAUDE.md forbids it. A single permissions.deny rule is the lightest viable form \u2014 no script, no model call \u2014 and matches any WebFetch invocation against that host.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "WebFetch(domain:staging-api.internal)",
+          "claude_md_line": null,
+          "sentinel_name": null
+        },
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "Closes the Bash bypass (curl/wget) of the WebFetch deny \u2014 a glob on Bash can't reliably match a substring inside the command string, and CLAUDE.md treats any call to staging-api.internal as forbidden regardless of which tool issues it.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"Block Bash commands targeting staging-api.internal (CLAUDE.md forbids it).\"\"\"\nimport json, sys\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    if ev.get(\"tool_name\") != \"Bash\":\n        return 0\n    cmd = (ev.get(\"tool_input\") or {}).get(\"command\", \"\")\n    if \"staging-api.internal\" in cmd:\n        print(\n            \"BLOCKING: CLAUDE.md forbids calling staging-api.internal from agent \"\n            \"sessions \u2014 it is a shared environment and some endpoints mutate state. \"\n            \"Use recorded fixtures or the local mock server instead. \"\n            \"Do not retry against this host.\",\n            file=sys.stderr,\n        )\n        return 2\n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/block-bash-staging-api"
+        },
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "CLAUDE.md establishes `pnpm test:ci` as the test command; bare `pnpm test` opens an interactive watcher that never returns. A permissions.deny on `Bash(pnpm test:*)` would also block the correct `pnpm test:ci` due to prefix overlap, so a hook that distinguishes the two is required.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"Block `pnpm test` (interactive watcher); steer to `pnpm test:ci`.\"\"\"\nimport json, sys\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    if ev.get(\"tool_name\") != \"Bash\":\n        return 0\n    cmd = (ev.get(\"tool_input\") or {}).get(\"command\", \"\")\n    stripped = cmd.strip()\n    if stripped.startswith(\"pnpm test\") and \"test:ci\" not in stripped:\n        print(\n            \"BLOCKING: Use `pnpm test:ci` instead \u2014 bare `pnpm test` opens an \"\n            \"interactive watcher and will not return. CLAUDE.md specifies \"\n            \"`pnpm test:ci` as the project's test command. Re-run with test:ci.\",\n            file=sys.stderr,\n        )\n        return 2\n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/block-pnpm-test-watcher"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": null,
+            "sentinel_format": null,
+            "rationale_keywords": 10,
+            "imperative_stderr": null,
+            "rule_pattern": 10,
+            "stdin_envelope": null
+          },
+          "mean": 10.0,
+          "degenerate": false,
+          "rules_present": null
+        },
+        {
+          "checks": {
+            "form_matches": 0,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "imperative_stderr": 10,
+            "rule_pattern": 0,
+            "stdin_envelope": 10
+          },
+          "mean": 7.142857142857143,
+          "degenerate": false,
+          "rules_present": null
+        },
+        {
+          "checks": {
+            "form_matches": 0,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": 10,
+            "sentinel_format": 10,
+            "rationale_keywords": 0,
+            "imperative_stderr": 10,
+            "rule_pattern": 0,
+            "stdin_envelope": 10
+          },
+          "mean": 5.714285714285714,
+          "degenerate": false,
+          "rules_present": null
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 10,
+          "error": null,
+          "strengths": [
+            "Correctly identifies permissions.deny as the lightest enforcement form \u2014 no script or model call needed",
+            "Uses the proper Claude Code rule syntax WebFetch(domain:staging-api.internal) to match the offending host",
+            "Rationale directly cites the telemetry evidence and ties the rule to the planted problem"
+          ],
+          "weaknesses": [
+            "Doesn't explicitly note that domain matching covers all paths/query strings (e.g., the ?reset=1 variant) \u2014 minor since the syntax does handle it"
+          ],
+          "reasoning": "The proposal precisely matches the planted solution: a single permissions.deny rule on WebFetch scoped to the staging host, with correct rule syntax and a grounded rationale. It avoids unnecessary scripts, hooks, or prompt-based enforcement. There is essentially nothing to improve."
+        },
+        {
+          "valid": true,
+          "score": 2,
+          "error": null,
+          "strengths": [
+            "Hook script correctly parses stdin JSON envelope and exits with code 2 to block, with a clear stderr message",
+            "Sentinel name is namespaced sensibly for later management"
+          ],
+          "weaknesses": [
+            "Does not solve the planted problem: the team wants WebFetch to staging-api.internal blocked, but this hook only matches Bash and ignores WebFetch entirely",
+            "Planted problem explicitly says a permissions.deny rule on WebFetch is the lightest fix \u2014 proposing a Python hook on a different tool is both the wrong form and wrong target",
+            "Closes a hypothetical curl/wget bypass that the problem statement never raised, while leaving the actual reported WebFetch calls unblocked"
+          ],
+          "reasoning": "The proposal targets the wrong tool (Bash instead of WebFetch) and the wrong mechanism (command hook instead of permissions.deny), so it fails to block the behavior telemetry actually flagged. The rationale invents a Bash-bypass concern not in the problem and ignores the explicit guidance that a deny rule is the right lightweight fix."
+        },
+        {
+          "valid": true,
+          "score": 0,
+          "error": null,
+          "strengths": [
+            "Hook is technically well-formed: reads stdin JSON, checks tool_name, exits 2 with a stderr message to block",
+            "Correctly notes that prefix-based permissions.deny could over-match in a Bash command scenario"
+          ],
+          "weaknesses": [
+            "Solves an entirely different problem \u2014 targets Bash `pnpm test` instead of WebFetch to staging-api.internal",
+            "Ignores the planted solution: a simple permissions.deny rule on WebFetch which needs no script",
+            "Wrong event matcher (Bash) and wrong tool entirely; staging-api.internal host is never checked"
+          ],
+          "reasoning": "The proposal does not address the planted problem at all. The problem calls for blocking WebFetch to https://staging-api.internal/... via a lightweight permissions.deny, but the submission is a Python hook blocking `pnpm test` Bash commands. It's a competent hook for an unrelated problem, so it scores near zero."
+        }
+      ],
+      "installed": [
+        true,
+        true,
+        true
+      ],
+      "fired": [
+        null,
+        null,
+        null
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "permissions": {
+            "deny": [
+              "WebFetch(domain:staging-api.internal)"
+            ]
+          },
+          "hooks": {
+            "PreToolUse": [
+              {
+                "matcher": "Bash",
+                "hooks": [
+                  {
+                    "name": "self-improving-claude/block-bash-staging-api",
+                    "type": "command",
+                    "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-bash-staging-api.py",
+                    "timeout": 5
+                  }
+                ]
+              },
+              {
+                "matcher": "Bash",
+                "hooks": [
+                  {
+                    "name": "self-improving-claude/block-pnpm-test-watcher",
+                    "type": "command",
+                    "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-pnpm-test-watcher.py",
+                    "timeout": 5
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "hook_files": [
+          "__pycache__",
+          "block-bash-staging-api.py",
+          "block-pnpm-test-watcher.py"
+        ],
+        "permission_rules": [
+          "WebFetch(domain:staging-api.internal)"
+        ]
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "011-no-overblock-deny",
+      "expect_no_proposal": true,
+      "restraint": 0,
+      "echo": [
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "CLAUDE.md says 'never commit a real .env' \u2014 denying Read of .env removes the path by which Claude would surface secrets into context or commits; permissions.deny is the lightest viable form and uniformly covers Read/Grep/Glob.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Read(**/.env)",
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/deny-env-read"
+        },
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Covers variants like .env.local / .env.production alongside the bare .env rule; same CLAUDE.md grounding, same lightest-viable-form reasoning as the bare .env case.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Read(**/.env.*)",
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/deny-env-dot-read"
+        },
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Bash",
+          "rationale": "package.json defines `test:ci` but no `test` script, so bare `pnpm test` (or `pnpm run test`) will fail; a permissions.deny rule on `Bash(pnpm test:*)` would also block the correct `pnpm test:ci` because they share a prefix, so a script hook is required to discriminate.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\n\"\"\"Block bare `pnpm test`; steer Claude to `pnpm test:ci`.\"\"\"\nimport json, re, sys\n\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    if ev.get(\"tool_name\") != \"Bash\":\n        return 0\n    cmd = (ev.get(\"tool_input\") or {}).get(\"command\", \"\")\n    if re.search(r\"(?:^|[;&|\\n]\\s*)pnpm\\s+(?:run\\s+)?test(?![:\\w-])\", cmd):\n        print(\n            \"Use `pnpm test:ci` instead \u2014 package.json defines `test:ci` but no `test` script, so bare `pnpm test` will fail.\",\n            file=sys.stderr,\n        )\n        return 2\n    return 0\n\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/block-bare-pnpm-test"
+        },
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "CLAUDE.md says 'Use pnpm' \u2014 blocking npm at the permissions layer keeps Claude on the documented package manager without needing a script; lighter than a hook and the deny message is self-explanatory.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Bash(npm:*)",
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/deny-npm"
+        },
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Same 'Use pnpm' grounding from CLAUDE.md applied to yarn; permissions.deny is the lightest viable form for a uniform block.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Bash(yarn:*)",
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/deny-yarn"
+        }
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "permissions": {
+            "deny": [
+              "Read(**/.env)",
+              "Read(**/.env.*)",
+              "Bash(npm:*)",
+              "Bash(yarn:*)"
+            ]
+          },
+          "hooks": {
+            "PreToolUse": [
+              {
+                "matcher": "Bash",
+                "hooks": [
+                  {
+                    "name": "self-improving-claude/block-bare-pnpm-test",
+                    "type": "command",
+                    "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/block-bare-pnpm-test.py",
+                    "timeout": 5
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "hook_files": [
+          "__pycache__",
+          "block-bare-pnpm-test.py"
+        ],
+        "permission_rules": [
+          "Read(**/.env)",
+          "Read(**/.env.*)",
+          "Bash(npm:*)",
+          "Bash(yarn:*)"
+        ]
+      },
+      "error": null
+    },
+    {
+      "id": "012-one-off-bug-no-guardrail",
+      "expect_no_proposal": true,
+      "restraint": 0,
+      "echo": [
+        {
+          "form": "command-hook",
+          "event": "PostToolUse",
+          "matcher": "Edit|Write",
+          "rationale": "Recent chat shows Claude wrote `grand_total = total + tax` referencing an undefined `total` and only learned of the bug after the user ran tests; pyflakes/ruff/flake8 catch undefined-name errors deterministically in <100ms, and surfacing them via action-forcing PostToolUse stderr (`BLOCKING ... Fix each ... do not claim the task is complete`) forces Claude to repair the file in the same turn rather than handing broken code back to the user.",
+          "script_lang": "python",
+          "script": "import json, sys, subprocess, shutil, os\n\nLINTERS = [\n    ([\"ruff\", \"check\", \"--select=F\", \"--no-fix\"], \"ruff\"),\n    ([\"pyflakes\"], \"pyflakes\"),\n    ([\"flake8\", \"--select=F\"], \"flake8\"),\n]\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n    tool = ev.get(\"tool_name\", \"\")\n    inp = ev.get(\"tool_input\") or {}\n    if tool not in (\"Edit\", \"Write\"):\n        return 0\n    path = inp.get(\"file_path\", \"\")\n    if not path.endswith(\".py\") or not os.path.isfile(path):\n        return 0\n    chosen = None\n    for cmd_prefix, name in LINTERS:\n        if shutil.which(cmd_prefix[0]):\n            chosen = (cmd_prefix, name)\n            break\n    if not chosen:\n        return 0\n    cmd_prefix, name = chosen\n    try:\n        result = subprocess.run(cmd_prefix + [path], capture_output=True, text=True, timeout=15)\n    except Exception:\n        return 0\n    if result.returncode == 0:\n        return 0\n    msg = (result.stdout or result.stderr).strip()\n    if not msg:\n        return 0\n    print(\n        f\"BLOCKING: {name} flagged issues in {path}. \"\n        f\"Fix each before continuing \u2014 do not claim the task is complete or move on until the file is clean:\\n{msg}\",\n        file=sys.stderr,\n    )\n    return 2\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/pyflakes-on-edit"
+        }
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "hooks": {
+            "PostToolUse": [
+              {
+                "matcher": "Edit|Write",
+                "hooks": [
+                  {
+                    "name": "self-improving-claude/pyflakes-on-edit",
+                    "type": "command",
+                    "command": "python3 /private/var/folders/47/8h98svn929q45ld_8cvmn3kh0000gq/T/sic-eval-xw3ow19i/.claude/hooks/pyflakes-on-edit.py"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "hook_files": [
+          "__pycache__",
+          "pyflakes-on-edit.py"
+        ],
+        "permission_rules": []
+      },
+      "error": null
+    }
+  ],
+  "summary": {
+    "average_code": 9.514285714285714,
+    "average_model": 8.0,
+    "average_clean_rate": 0.86,
+    "install_rate": 0.9473684210526315,
+    "fire_rate": 0.4,
+    "average_restraint": 0.0,
+    "entries": [
+      {
+        "id": "001-pnpm-test-watcher",
+        "code_max": 10.0,
+        "code_mean": 8.75,
+        "model_max": 8,
+        "clean_rate": 1.0,
+        "n_proposals": 2,
+        "install_rate": 1.0
+      },
+      {
+        "id": "002-block-env-reads",
+        "code_max": 7.142857142857143,
+        "code_mean": 6.825396825396826,
+        "model_max": 6,
+        "clean_rate": 0.3333333333333333,
+        "n_proposals": 3,
+        "install_rate": 1.0
+      },
+      {
+        "id": "003-prisma-generated-protection",
+        "code_max": 10.0,
+        "code_mean": 8.333333333333332,
+        "model_max": 3,
+        "clean_rate": 0.6,
+        "n_proposals": 5,
+        "install_rate": 1.0
+      },
+      {
+        "id": "004-recursion-prevention",
+        "code_max": 8.0,
+        "code_mean": 8.0,
+        "model_max": 8,
+        "clean_rate": 1.0,
+        "n_proposals": 1,
+        "install_rate": 0.0
+      },
+      {
+        "id": "005-format-on-write",
+        "code_max": 10.0,
+        "code_mean": 10.0,
+        "model_max": 9,
+        "clean_rate": 1.0,
+        "n_proposals": 1,
+        "install_rate": 1.0
+      },
+      {
+        "id": "006-rename-callers",
+        "code_max": 10.0,
+        "code_mean": 10.0,
+        "model_max": 8,
+        "clean_rate": 1.0,
+        "n_proposals": 1,
+        "install_rate": 1.0
+      },
+      {
+        "id": "007-git-push-warn",
+        "code_max": 10.0,
+        "code_mean": 10.0,
+        "model_max": 10,
+        "clean_rate": 1.0,
+        "n_proposals": 1,
+        "install_rate": 1.0
+      },
+      {
+        "id": "008-secret-in-source",
+        "code_max": 10.0,
+        "code_mean": 10.0,
+        "model_max": 9,
+        "clean_rate": 1.0,
+        "n_proposals": 1,
+        "install_rate": 1.0
+      },
+      {
+        "id": "009-commit-message-style",
+        "code_max": 10.0,
+        "code_mean": 9.166666666666668,
+        "model_max": 9,
+        "clean_rate": 1.0,
+        "n_proposals": 2,
+        "install_rate": 1.0
+      },
+      {
+        "id": "010-block-staging-fetch",
+        "code_max": 10.0,
+        "code_mean": 7.6190476190476195,
+        "model_max": 10,
+        "clean_rate": 0.6666666666666666,
+        "n_proposals": 3,
+        "install_rate": 1.0
+      }
+    ],
+    "restraint_entries": [
+      {
+        "id": "011-no-overblock-deny",
+        "restraint": 0
+      },
+      {
+        "id": "012-one-off-bug-no-guardrail",
+        "restraint": 0
+      }
+    ]
+  }
+}
