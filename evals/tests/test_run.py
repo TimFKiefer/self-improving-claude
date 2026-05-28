@@ -203,7 +203,47 @@ def test_integration_real_api_call():
 
 
 import evals.run as run_mod
-from evals.run import _installed_ok, _aggregate_sandbox
+from evals.run import _installed_ok, _aggregate_sandbox, _compute_skill_size
+
+
+def test_dataset_has_three_holdout_entries():
+    """v0.4.1: dataset.json defines a 9-visible / 3-holdout split."""
+    from evals.fixtures_lib import load_dataset
+    ds = load_dataset()
+    visible = [e for e in ds if not e.get("holdout")]
+    holdout = [e for e in ds if e.get("holdout")]
+    assert len(holdout) == 3, f"expected 3 holdout, got {len(holdout)}: {[e['id'] for e in holdout]}"
+    assert len(visible) == 9, f"expected 9 visible, got {len(visible)}"
+    # Each subset must keep at least one of each type for representativeness
+    hold_ids = {e["id"] for e in holdout}
+    assert any("secret-in-source" in i for i in hold_ids), "holdout needs a firing fixture"
+    assert any("one-off-bug" in i for i in hold_ids), "holdout needs a restraint fixture"
+    assert any("block-env-reads" in i for i in hold_ids), "holdout needs a shape-only fixture"
+
+
+def test_aggregate_sandbox_handles_empty_results():
+    """Empty input (e.g. --holdout-only with no holdout matches) returns all-None summary."""
+    agg = _aggregate_sandbox([])
+    assert agg["average_code"] is None
+    assert agg["install_rate"] is None
+    assert agg["fire_rate"] is None
+    assert agg["average_restraint"] is None
+    assert agg["entries"] == [] and agg["restraint_entries"] == []
+
+
+def test_compute_skill_size_reads_live_slow_state():
+    """skill_size measures the actual on-disk slow-state files (advisory metric)."""
+    size = _compute_skill_size()
+    # Three breakdown fields populated with positive char counts
+    assert size["breakdown"]["procedure"] > 1000, "orchestrator-procedure.md should be substantial"
+    assert size["breakdown"]["preamble_max"] > 100, "at least one preamble should exist"
+    assert size["breakdown"]["references"] > 1000, "references should be substantial"
+    # chars_per_invocation = procedure + preamble_max + references
+    expected_chars = (size["breakdown"]["procedure"] + size["breakdown"]["preamble_max"]
+                      + size["breakdown"]["references"])
+    assert size["chars_per_invocation"] == expected_chars
+    # Token approximation is chars // 4
+    assert size["approx_tokens_per_invocation"] == expected_chars // 4
 
 
 def test_installed_ok_permission_rule_present():
@@ -296,7 +336,7 @@ def test_main_sandbox_mode_writes_per_model_results(monkeypatch, tmp_path):
     monkeypatch.setattr(run_mod, "EVALS_DIR", tmp_path)
     rc = run_mod.main(["--sandbox"])
     assert rc == 0
-    out = list((tmp_path / "results").glob("*-v0.4.0-sandbox-haiku.json"))
+    out = list((tmp_path / "results").glob("*-v0.4.1-sandbox-haiku.json"))
     assert len(out) == 1
     data = json.loads(out[0].read_text())
     assert data["mode"] == "sandbox" and data["summary"]["average_restraint"] == 10.0

@@ -21,6 +21,7 @@
     },
     {
       "id": "002-block-env-reads",
+      "holdout": true,
       "trigger": "improve-init",
       "user_args": "block reads of .env files",
       "fixture": "fixtures/002-block-env-reads",
@@ -104,6 +105,7 @@
     },
     {
       "id": "008-secret-in-source",
+      "holdout": true,
       "trigger": "improve",
       "user_args": "add a guardrail so you never write API keys or other secrets into source files",
       "fixture": "fixtures/008-secret-in-source",
@@ -152,6 +154,7 @@
     },
     {
       "id": "012-one-off-bug-no-guardrail",
+      "holdout": true,
       "trigger": "improve",
       "user_args": "",
       "fixture": "fixtures/012-one-off-bug-no-guardrail",

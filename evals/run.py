@@ -24,9 +24,41 @@ from evals.sandbox_runner import run_in_sandbox
 REPO_ROOT = EVALS_DIR.parent
 SKILL_REFS = REPO_ROOT / "plugin" / "skills" / "improve" / "references"
 PROMPT_TEMPLATE_PATH = EVALS_DIR / "prompt_template.md"
+SHARED_SKILL_DIR = REPO_ROOT / "plugin" / "skills" / "_shared"
 
 ORCHESTRATOR_MODEL = "claude-haiku-4-5-20251001"
 CLEAN_THRESHOLD = 7.0  # a proposal at/above this code mean counts as "clean"
+
+
+def _compute_skill_size() -> dict:
+    """Measure the slow-state skill body size (advisory, non-gating).
+
+    Reports per-invocation character counts for both /improve and /improve-init
+    (procedure + per-skill preamble + all references). Tokens are approximated
+    as chars // 4. Lets us track skill bloat across iterations (SkillOpt §8.2).
+    """
+    proc = SHARED_SKILL_DIR / "orchestrator-procedure.md"
+    procedure = len(proc.read_text(encoding="utf-8")) if proc.exists() else 0
+    preambles = {}
+    pre_dir = SHARED_SKILL_DIR / "preambles"
+    if pre_dir.exists():
+        for p in sorted(pre_dir.glob("*.md")):
+            preambles[p.stem] = len(p.read_text(encoding="utf-8"))
+    references = 0
+    refs_dir = SHARED_SKILL_DIR / "references"
+    if refs_dir.exists():
+        for r in sorted(refs_dir.glob("*.md")):
+            references += len(r.read_text(encoding="utf-8"))
+    chars_per_invocation = procedure + max(preambles.values(), default=0) + references
+    return {
+        "chars_per_invocation": chars_per_invocation,
+        "approx_tokens_per_invocation": chars_per_invocation // 4,
+        "breakdown": {
+            "procedure": procedure,
+            "preamble_max": max(preambles.values(), default=0),
+            "references": references,
+        },
+    }
 
 _FENCE_OPEN_RE = re.compile(r"^```(?:json|JSON)?\s*\n?")
 _FENCE_CLOSE_RE = re.compile(r"\n?```\s*$")
@@ -291,6 +323,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--entry", help="run only one entry by id")
     parser.add_argument("--sandbox", action="store_true",
                         help="drive the REAL /improve command in a sandbox (Claude models only)")
+    holdout = parser.add_mutually_exclusive_group()
+    holdout.add_argument("--no-holdout", action="store_true",
+                         help="(sandbox) skip held-out entries — for iteration mode")
+    holdout.add_argument("--holdout-only", action="store_true",
+                         help="(sandbox) run only held-out entries — for confirmation mode")
     args = parser.parse_args(argv)
 
     if args.sandbox:
@@ -369,7 +406,15 @@ def _main_sandbox(args) -> int:
         if not entries:
             print(f"No entry with id={args.entry}", file=sys.stderr)
             return 2
-    print(f"Sandbox eval — proposer={model}, judge={judge}, effort={effort or 'default'}, {len(entries)} entries", file=sys.stderr)
+    if getattr(args, "no_holdout", False):
+        entries = [e for e in entries if not e.get("holdout")]
+        holdout_mode = "visible-only"
+    elif getattr(args, "holdout_only", False):
+        entries = [e for e in entries if e.get("holdout")]
+        holdout_mode = "holdout-only"
+    else:
+        holdout_mode = "full"
+    print(f"Sandbox eval — proposer={model}, judge={judge}, effort={effort or 'default'}, mode={holdout_mode}, {len(entries)} entries", file=sys.stderr)
 
     results = []
     for entry in entries:
@@ -377,16 +422,28 @@ def _main_sandbox(args) -> int:
               file=sys.stderr)
         results.append(run_one_entry_sandbox(entry, model=model, grader_client=grader_client, judge_model=judge, effort=effort))
 
+    # Map each result back to its dataset entry's holdout flag for subset aggregation
+    holdout_ids = {e["id"] for e in load_dataset() if e.get("holdout")}
+    results_visible = [r for r in results if r["id"] not in holdout_ids]
+    results_holdout = [r for r in results if r["id"] in holdout_ids]
     agg = _aggregate_sandbox(results)
     output = {
         "date": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "mode": "sandbox", "proposer": model, "judge": judge, "effort": effort or "default",
+        "holdout_mode": holdout_mode,
+        "skill_size": _compute_skill_size(),
         "results": results, "summary": agg,
+        "summary_visible": _aggregate_sandbox(results_visible) if results_visible else None,
+        "summary_holdout": _aggregate_sandbox(results_holdout) if results_holdout else None,
     }
     results_dir = EVALS_DIR / "results"
     results_dir.mkdir(exist_ok=True)
     suffix = f"-effort-{effort}" if effort else ""
-    out_path = results_dir / f"{dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d')}-v0.4.0-sandbox-{model}{suffix}.json"
+    if holdout_mode == "visible-only":
+        suffix += "-visible"
+    elif holdout_mode == "holdout-only":
+        suffix += "-holdout"
+    out_path = results_dir / f"{dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d')}-v0.4.1-sandbox-{model}{suffix}.json"
     out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
     print(f"\nResults written to {out_path}")
     ac, am = agg["average_code"], agg["average_model"]
