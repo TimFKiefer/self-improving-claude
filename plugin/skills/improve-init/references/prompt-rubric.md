@@ -42,6 +42,8 @@ Every proposal you draft must satisfy every item below before you show it to the
 
    The pattern: lead with `REQUIRED FOLLOW-UP` or `BLOCKING`, name the action verb explicitly (`Fix`, `Update`, not `verify`/`audit`), close with `Do not stop` / `Do not ask`. Brevity beats argumentation — short imperatives override scope discipline more reliably than long justifications.
 
+13. **Fires on its own trigger (command-hooks).** Before showing the user, trace the hook against two stdin envelopes you construct from the chosen event + matcher: a *triggering* one and a *clean* one. The triggering envelope must reach `return 2` (with stderr); the clean envelope must reach `return 0`. A hook that can't be traced to block its own trigger and pass clean input silently no-ops once installed — the usual cause is reading `ev["tool"]`/`ev["args"]` instead of `tool_name`/`tool_input`, ignoring stdin, or a guard condition that never matches.
+
 ## Disqualifiers (drop the candidate immediately)
 
 - The rule duplicates an existing entry (verified against `<existing_hooks>` / `<existing_permissions>`).

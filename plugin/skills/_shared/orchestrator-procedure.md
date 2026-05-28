@@ -158,9 +158,21 @@ Reread your draft against the rubric with fresh eyes. If anything is off, revise
 
 Edge case: if a candidate is *almost* there and you suspect the user would still want it, use `AskUserQuestion` to surface the trade-off rather than dropping it silently.
 
-## Step 7 — Validate syntax AND stderr discipline before showing the user
+## Step 7 — Validate syntax, firing, AND stderr discipline before showing the user
 
 **Syntax checks.** Run the obvious ones for the form you produced — `bash -n`, `python -m py_compile`, `node --check`, JSON parse, glob shape. A draft that doesn't pass these never reaches the user.
+
+**Behavioral trace (command-hooks only — does it actually fire?).** This is a *validation* step, not a form selector — apply it only to command-hooks already chosen per Step 4. **Do not** convert a lighter-form proposal (`permissions.deny` / `permissions.ask` / `prompt-hook` / `CLAUDE.md` note) into a command-hook to earn a "fires" check. **Do not** force a blocking PreToolUse where a non-blocking PostToolUse or a lighter form is the right shape. If either temptation appears, re-run Step 4 — the trace doesn't override form selection. Syntax-clean is not fire-clean: a hook that reads the wrong stdin field parses perfectly and still silently no-ops. Before finalizing any command-hook, construct two stdin envelopes *yourself* from the event and matcher you chose, and trace the script against both:
+
+- a **triggering** envelope — `{"hook_event_name":"<event>","tool_name":"<the tool the matcher targets>","tool_input":{<fields that SHOULD trip the guard>}}`
+- a **clean** envelope — the same shape, with `tool_input` fields that should NOT trip it
+
+Execute the script line by line in your head against each, and confirm BOTH directions:
+
+1. **Trigger fires.** The triggering envelope reaches the block path — `print(<msg>, file=sys.stderr)` then `return 2` (exit 2). If it instead falls through to `return 0`, the guard never matched: almost always reading `ev["tool"]`/`ev["args"]` instead of `tool_name`/`tool_input`, ignoring stdin entirely, or a condition that doesn't actually match the trigger. Fix the script and re-trace.
+2. **Clean passes.** The clean envelope reaches `return 0` and does NOT block. If a benign call blocks, the guard is too broad — narrow the condition.
+
+A command-hook that you can't trace to `return 2` on its own trigger is not shippable — it would install and do nothing. This is the firing analogue of validating syntax: confirm *behavior*, not just that it parses.
 
 **Stderr discipline check (deterministic).** For any command-hook that prints to stderr, extract the literal stderr strings from the script body. Apply BOTH rules:
 
@@ -170,7 +182,7 @@ Edge case: if a candidate is *almost* there and you suspect the user would still
 
 This is the deterministic version of "would I, reading only this, continue without asking?" — pattern matching is more reliable than self-introspection.
 
-**Retry loop.** If the stderr discipline check fails, revise the stderr strings per criterion 12 (see the bad/good pairs) and re-check. Cap at 2 retries. If the revised version still fails, drop the candidate and note one-line why — usually a sign the form choice itself was wrong (criterion 11) and you should re-do Step 4.
+**Retry loop (cap 2 total).** If the behavioral trace fails, fix the script (field names, stdin handling, or the guard condition) and re-trace. If the stderr discipline check fails, revise the stderr strings per criterion 12 (see the bad/good pairs) and re-check. Across both checks, cap at 2 revision passes; if the proposal still fails, drop the candidate and note one-line why — usually a sign the form choice itself was wrong (criterion 11) and you should re-do Step 4.
 
 Better revised than shipped weak; better dropped than visibly broken.
 
