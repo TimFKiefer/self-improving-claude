@@ -125,6 +125,8 @@ Carry only the user-picked candidates forward to Step 4. The unpicked ones go in
 
 ## Step 4 — Choose the lightest form that does the job
 
+**Classify first:** parameter-pattern rules (tool + parameter glob like WebFetch(URL-pattern), Bash(command-pattern), Write(path-pattern)) → forms 1-2; computational/conditional rules → forms 3-5.
+
 For each candidate, consider these forms in order. Use the FIRST one that's *viable* for this rule:
 
 1. **`permissions.deny`** — if a glob covers the action uniformly across tools AND it should be unconditionally blocked. Cheapest: no model call, no script, no user interaction.
