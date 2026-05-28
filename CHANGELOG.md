@@ -2,6 +2,61 @@
 
 All notable changes to `self-improving-claude` are documented here.
 
+## [0.4.0] — 2026-05-28
+
+### Added
+
+#### Track 6 — Eval integrity (the autonomy gate)
+- **Real-skill sandbox harness.** `python3 -m evals.run --sandbox` drives the actual `/improve` / `/improve-init` slash commands via `claude --print` against an isolated project sandbox per fixture. The eval now measures *what we ship*, not a `prompt_template.md` proxy. Configurable proposer / judge / effort via `SANDBOX_MODEL` / `SANDBOX_JUDGE` / `SANDBOX_EFFORT` env vars (Claude models only). New per-fixture aggregation: `code_max`, `code_mean`, `clean_rate`, `n_proposals`, `install_rate`.
+- **`fire_rate` metric — hooks must actually fire.** `grade_behavior.run_firing_check` installs each generated command-hook into a fresh sandbox, then constructs a triggering stdin envelope and a clean envelope from the hook's chosen event/matcher. A hook scores `fired = true` only if the triggering envelope exits 2 (blocking) AND the clean envelope exits 0. Fixtures 001/005/006/008 carry firing-test payloads.
+- **Restraint fixtures (011 + 012).** First negative fixtures — `expect_no_proposal` semantic. Fixture 011 (no-overblock-deny) and 012 (one-off-bug-no-guardrail) score `restraint = 10` when the model correctly declines to propose, `0` when it pushes a guardrail anyway. Closes a known gap from v0.3.x (the eval previously only graded proposed hooks, rewarding any output regardless of whether the situation warranted one).
+- **Stdin-envelope check (`grade_code.stdin_envelope`).** Flags command-hooks that read the wrong fields (`tool`, `args`) instead of the actual Claude Code envelope (`tool_name`, `tool_input`). The single most common silent-failure mode for generated hooks.
+- **Capability benchmark.** Separate cross-model proposal-quality leaderboard (`evals/results/benchmark/`). 4-model baseline (gemma / haiku / sonnet / opus). Sets the bar for honest cross-model comparison; canonical runs use extended thinking + max effort + opus judge.
+
+#### Track 7 — Knowledge re-grounding + single-source
+- **`scripts/sync_skills.py` — single-source skill generator.** `plugin/skills/_shared/` is now the canonical source (orchestrator-procedure.md, preambles/, references/). `python3 scripts/sync_skills.py` builds each `plugin/skills/<skill>/SKILL.md` = preamble + procedure and copies references into each skill tree. Byte-preserving — regenerating a correctly-seeded tree is a no-op. The pre-commit hook (`scripts/install-hooks.sh`) runs `--check` and fails on drift. Closes v0.4 exit criterion "references single-sourced."
+- **Knowledge re-grounding into `docs/knowledge/`.** Prompt-engineering amplifiers (§2–§3): numeric anchors over adjectives; negative imperatives suppress defaults; "when to use" + "when NOT to use" pairing; the "explain why" line is the example's payload, not its caption. New §8 (optimization-loop discipline, informed by SkillOpt framing): ML-analogue mapping, bounded edits, compactness as a measurable axis, validation gating (held-out + reject ties), slow/fast state invariants, verifier wall. Updated plugins-and-skills.md.
+
+#### Skill body — validated improvements via prompt-lab loop
+- **C1′ — behavioral-trace self-check (Step 7) + rubric criterion 13.** Before finalizing any command-hook, the orchestrator constructs a triggering + clean stdin envelope from its chosen event/matcher, mentally executes the script, and confirms `return 2` for trigger and `return 0` for clean. A form-discipline guard prepended: *the trace is a validation step, not a form selector — never convert a lighter form to a command-hook to earn a "fires" check; never force a blocking PreToolUse where a lighter shape is right.*
+- **Phase 1+2 — ask-first selection (Step 3.5) + persistent user preferences.** New Step 3.5 uses `AskUserQuestion` to surface candidates for selection in default mode (skipped on directive mode or single overwhelming-evidence candidate). Two-layer markdown preferences (global `${HOME}/.claude/self-improving-claude/preferences.md` + per-project `${CLAUDE_PROJECT_DIR}/.claude/self-improving-claude/preferences.md`) with `## Avoid` / `## Prefer` / `## Authorize` sections. Read at Step 2, Avoid-filter at Step 3, Prefer-bias at Step 4, Authorize honor at Step 8, capture offered at Step 10.
+
+#### Eval & dataset polish
+- **`stdin-envelope` boilerplate inlined into orchestrator Step 5.** Generated hooks read the right fields by construction. Reduces the most common no-op failure mode.
+- **Lighter (non-sabotaging) sandbox override.** Default sandbox overlay no longer forces command-hook output when a lighter form would be correct.
+- **Sandbox subprocess timeout handling.** A single slow run no longer kills the batch.
+- **Per-call judge / effort plumbing.** `evals/client_claude_cli.py` accepts effort per-call; judge model selectable independently from proposer.
+
+### Changed
+- **Plugin version bumped to 0.4.0** in `plugin/.claude-plugin/plugin.json`.
+- **Per-run schema extended.** Sandbox result JSON now records `mode`, `proposer`, `judge`, `effort`, per-fixture `clean_rate`, restraint sub-aggregation.
+
+### Baseline (v0.4.0 release-state, opus judge, default effort, 12 fixtures)
+
+| proposer | code | model | install | fire | restraint |
+|---|---:|---:|---:|---:|---:|
+| haiku | 7.39 | 6.30 | 80% | 25% | **5.00** |
+| sonnet 4.5 | 9.22 | 7.20 | 82% | 50% | 0.00 |
+| opus | 9.54 | 7.60 | **100%** | 40% | 0.00 |
+
+Results: `evals/results/2026-05-28-v0.4.0-sandbox-{haiku,claude-sonnet-4-5,opus}.json`.
+
+Not directly comparable to v0.3.x — the v0.4 sandbox eval measures behaviors the v0.3 shape eval couldn't see (real install path, real firing, restraint floor). The prompt-lab loop's pre-Phase-1+2 numbers (preserved at `prompt-lab/rounds/C1prime-run2/`) are the intra-v0.4.0 reference if you want to attribute gains to the loop itself.
+
+### Why this release
+v0.4.0 is "Foundation for Autonomy" per `docs/ROADMAP.md`. Two coupled pieces:
+
+1. **The eval is finally trustworthy enough to gate a Karpathy-style auto-improve loop.** The sandbox runs the real skill against real fixtures and verifies hooks actually fire; restraint fixtures catch over-proposing; the stdin-envelope check catches the most common silent-failure mode. Until v0.4, "code grade went up" could mean a wrong-form proposal looked right on paper — now the metric reflects what would actually install and fire.
+2. **The skill body shows measurable gains from a hand-run version of that loop.** The prompt-lab journey (C1, C1′, C2, C3, then Phase 1+2) demonstrated the loop pattern on real candidates with real keep/reject decisions. C1′ (behavioral-trace + form-discipline guard) was kept based on N=2 confirmation. C2 (negative example) and C3 (imperative opening) were rejected on no-positive-signal. Phase 1+2 was added separately as user-experience scope and the v0.4.0 release baseline confirms it improves on every model.
+
+That second piece is *evidence* the v0.5 Path A loop is realistic — not just an abstract roadmap commitment. v0.4.1 will land the held-out validation subset and compactness tracking (the SkillOpt disciplines we don't yet enforce structurally); v0.5 brainstorm picks up the edit-proposer agent that automates what we did manually in prompt-lab.
+
+### Not in v0.4.0 (deferred)
+- **Composed PostToolUse + Stop hooks** — moved from "v0.4 headline" to v0.5 candidate during the vision-first reprioritization (see ROADMAP). The Path A loop may surface this form automatically by editing the procedure.
+- **Held-out validation subset** — queued for v0.4.1. Without it, every "kept" edit is partially overfit to the visible 12 fixtures.
+- **Compactness as a measured axis** — queued for v0.4.1. Current skill body is ~6× SkillOpt's reported median; a deletion-only candidate round is overdue.
+- **Auto-collect Stop hook for pattern detection** — moved to v0.5 candidates.
+
 ## [0.3.4] — 2026-05-24
 
 ### Fixed
