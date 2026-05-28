@@ -129,7 +129,7 @@ For each candidate, consider these forms in order. Use the FIRST one that's *via
 
 1. **`permissions.deny`** — if the action should be unconditionally blocked AND a pattern can express which calls to block. Cheapest: no model call, no script, no user interaction.
 
-2. **`permissions.ask`** — if a glob covers the action AND the user is sometimes OK with it but wants to be the one to decide. Examples: `Bash(git push:*)`, `Bash(rm -rf:*)`, `Bash(npm publish:*)`. Built-in Claude Code prompts the user; we don't write any script or hook. Lighter than a prompt-hook because no LLM evaluation — the user decides directly. **This form is often missed** — use it whenever "warn and let me confirm" is the right semantic, not just "block."
+2. **`permissions.ask`** — if a glob covers the action AND the user wants confirmation/approval before it runs. Pattern-match these signals: 'human in the loop', 'confirm', 'ask me', 'let me decide', 'not a hard block' → permissions.ask, NOT a blocking command-hook. Examples: `Bash(git push:*)`, `Bash(rm -rf:*)`, `Bash(npm publish:*)`. Built-in Claude Code prompts the user; we don't write any script or hook. Lighter than a prompt-hook because no LLM evaluation — the user decides directly. **This form is often missed** — use it whenever "warn and let me confirm" is the right semantic, not just "block."
 
 3. **Prompt-based hook** (`"type": "prompt"`) — if pre-condition *reasoning* is needed (recognizing intent across novel input shapes that globs can't express) AND the event supports prompt hooks (PreToolUse, Stop, SubagentStop, UserPromptSubmit).
 
