@@ -191,7 +191,7 @@ The rubric in `<rubric>` is the contract for what makes a proposal shippable. Th
 - use portable paths (`${CLAUDE_PROJECT_DIR}` for project hooks, `${CLAUDE_PLUGIN_ROOT}` for plugin-shipped scripts)
 - come with a one-sentence rationale that names the bug AND why this form (not the lighter one in Step 4) was the right call
 
-**Formatting rules.** If CLAUDE.md declares a formatter (e.g., "ruff format is the formatter") and evidence shows files not being formatted, draft a PostToolUse hook with matcher `Write|Edit|MultiEdit` (exact matcher, all file-modification tools) that runs the declared formatter. Rationale must mention the formatter name (e.g., "ruff") AND "format"—not "lint". Linter errors are symptoms; formatting is the solution.
+**Formatting rules.** If CLAUDE.md declares a formatter (e.g., "ruff format is the formatter") and evidence shows files not being formatted, draft a PostToolUse hook that runs the declared formatter on `Write|Edit|MultiEdit` (all file modifications). The rationale must mention "format" (not "lint"). Telemetry showing linter errors is a symptom, not the solution.
 
 Command-hook scripts MUST start from this exact stdin skeleton. The hook receives a JSON envelope on **stdin** whose fields are `tool_name` and `tool_input` (a dict) — **NOT** `tool`/`args`. Reading the wrong field names is the single most common way a generated hook silently no-ops (the guard never matches, so it exits 0 and never fires):
 
