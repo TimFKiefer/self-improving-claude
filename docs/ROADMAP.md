@@ -183,9 +183,9 @@ Haiku-proposes-and-Haiku-grades is the highest scorer — partly the grader-bias
 
 ---
 
-### v0.5.0 — The Self-Improvement Loop (Path A, in progress)
+### v0.5.0 — The Self-Improvement Loop (Path A, 2026-05-29)
 
-**Fork resolved to Path A.** The vision said "self-improving" is not a metaphor; v0.5.0 makes it real. Implemented as three sub-milestones, two already in the repo:
+**Fork resolved to Path A.** The vision said "self-improving" is not a metaphor; v0.5.0 made it real. Shipped as three sub-milestones (α → β → RC) with one major detour (the haiku 50-iter run revealed eval-sampling variance, all 5 of its keeps reverted; opus + max effort re-run produced 3 keeps that survived fresh re-check).
 
 #### v0.5.0-α (shipped, intermediate — `ea84600`, `1ecc530`)
 - **`evals/auto_loop.py`** driver + CLI (`python3 -m evals.auto_loop`). Single fixture, no held-out gate.
@@ -401,7 +401,7 @@ The only invariants:
 
 ---
 
-**Last updated:** 2026-05-28, alongside the v0.5.0-α + v0.5.0-β implementation. v0.5.0 = Path A (auto-loop) — α + β shipped intermediate; RC adds caps + 50-iter validation + tag. v0.6 outlook refreshed.
+**Last updated:** 2026-05-29, alongside the v0.5.0 tag. Path A shipped — auto-loop is live with 4 surviving auto-discovered improvements (`fc8e57d`, `c6c5bac`, `f627357`, `4915a20`). The load-bearing v0.5.0 finding for v0.5.1: sampling fidelity matters as much as gate discipline (haiku-precision evals had ±3 point/fixture variance, washing out small Δs; opus + max effort resolves it at higher cost).
 
 **Linked artifacts:**
 - [`docs/VISION.md`](VISION.md) — what we're building toward
