@@ -250,30 +250,34 @@ def run_single_fixture_eval(target_id: str, skill_model: str, judge_model: str) 
     return _aggregate_sandbox([result])
 
 
-def _run_eval_over(filter_predicate, skill_model: str, judge_model: str) -> tuple[dict, list[dict]]:
+def _run_eval_over(filter_predicate, skill_model: str, judge_model: str,
+                   effort: str | None = None) -> tuple[dict, list[dict]]:
     """Run sandbox eval over every dataset entry matching the predicate.
     Returns (aggregated_summary, raw_per_entry_results)."""
     from evals.fixtures_lib import load_dataset
     from evals.run import run_one_entry_sandbox, _aggregate_sandbox
     from evals.client_claude_cli import ClaudeCliClient
     entries = [e for e in load_dataset() if filter_predicate(e)]
-    grader_client = ClaudeCliClient()
+    grader_client = ClaudeCliClient(effort=effort)
     results = []
     for entry in entries:
         results.append(run_one_entry_sandbox(
-            entry, model=skill_model, grader_client=grader_client, judge_model=judge_model,
+            entry, model=skill_model, grader_client=grader_client,
+            judge_model=judge_model, effort=effort,
         ))
     return _aggregate_sandbox(results), results
 
 
-def run_visible_eval(skill_model: str, judge_model: str) -> tuple[dict, list[dict]]:
+def run_visible_eval(skill_model: str, judge_model: str,
+                     effort: str | None = None) -> tuple[dict, list[dict]]:
     """Run the eval over visible-only entries (NOT holdout). β baseline + after-edit gate."""
-    return _run_eval_over(lambda e: not e.get("holdout"), skill_model, judge_model)
+    return _run_eval_over(lambda e: not e.get("holdout"), skill_model, judge_model, effort)
 
 
-def run_holdout_eval(skill_model: str, judge_model: str) -> tuple[dict, list[dict]]:
+def run_holdout_eval(skill_model: str, judge_model: str,
+                     effort: str | None = None) -> tuple[dict, list[dict]]:
     """Run the eval over holdout-only entries. β confirmation gate."""
-    return _run_eval_over(lambda e: bool(e.get("holdout")), skill_model, judge_model)
+    return _run_eval_over(lambda e: bool(e.get("holdout")), skill_model, judge_model, effort)
 
 
 def _fixture_failure_from_baseline(target_id: str, baseline: dict, dataset_entry: dict,
@@ -295,8 +299,8 @@ def _fixture_failure_from_baseline(target_id: str, baseline: dict, dataset_entry
     }
 
 
-def _run_eval_and_extract_result(target_id: str, skill_model: str, judge_model: str
-                                  ) -> tuple[dict, dict]:
+def _run_eval_and_extract_result(target_id: str, skill_model: str, judge_model: str,
+                                  effort: str | None = None) -> tuple[dict, dict]:
     """Run the single-fixture eval and also return the per-fixture raw result."""
     from evals.fixtures_lib import load_dataset
     from evals.run import run_one_entry_sandbox, _aggregate_sandbox
@@ -305,9 +309,9 @@ def _run_eval_and_extract_result(target_id: str, skill_model: str, judge_model: 
     target = next((e for e in entries if e["id"] == target_id), None)
     if target is None:
         raise ValueError(f"target fixture not found in dataset: {target_id}")
-    grader_client = ClaudeCliClient()
+    grader_client = ClaudeCliClient(effort=effort)
     result = run_one_entry_sandbox(target, model=skill_model, grader_client=grader_client,
-                                   judge_model=judge_model)
+                                   judge_model=judge_model, effort=effort)
     summary = _aggregate_sandbox([result])
     return summary, result
 
@@ -315,7 +319,8 @@ def _run_eval_and_extract_result(target_id: str, skill_model: str, judge_model: 
 def run_iteration(*, i: int, target_id: str, baseline: dict, last_result: dict,
                   holdout_baseline: dict | None,
                   procedure: str, rubric: str, audit, client, proposer_model: str,
-                  skill_model: str, judge_model: str, dry_run: bool = False,
+                  skill_model: str, judge_model: str, effort: str | None = None,
+                  dry_run: bool = False,
                   holdout_gate_enabled: bool = True,
                   ) -> tuple[dict, dict | None, dict | None]:
     """Run one auto-loop iteration. Returns (new_baseline, new_result, new_holdout).
@@ -397,7 +402,8 @@ def run_iteration(*, i: int, target_id: str, baseline: dict, last_result: dict,
 
     # 4. Run the visible eval on the same target fixture
     try:
-        new_baseline, new_result = _run_eval_and_extract_result(target_id, skill_model, judge_model)
+        new_baseline, new_result = _run_eval_and_extract_result(target_id, skill_model,
+                                                                judge_model, effort)
     except Exception as e:
         git_reset_sync_paths()
         record["decision"] = f"rejected: eval_failed ({type(e).__name__}: {str(e)[:100]})"
@@ -416,7 +422,7 @@ def run_iteration(*, i: int, target_id: str, baseline: dict, last_result: dict,
     # 6. β: held-out confirmation gate
     if holdout_gate_enabled and holdout_baseline is not None:
         try:
-            new_holdout, _ = run_holdout_eval(skill_model, judge_model)
+            new_holdout, _ = run_holdout_eval(skill_model, judge_model, effort)
         except Exception as e:
             git_reset_sync_paths()
             record["decision"] = f"rejected: holdout_eval_failed ({type(e).__name__})"
@@ -488,7 +494,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-hours", type=float, default=None,
                         help="abort cleanly before next iteration if total wall-clock "
                              "elapsed (since launch) exceeds this many hours")
+    parser.add_argument("--effort", default=None,
+                        help="thinking effort for skill-runner + judge (low|medium|high|xhigh|max). "
+                             "Falls back to SANDBOX_EFFORT env var if unset.")
     args = parser.parse_args(argv)
+    import os
+    effort = args.effort or os.environ.get("SANDBOX_EFFORT") or None
 
     _check_clean_tree()
 
@@ -522,6 +533,7 @@ def main(argv: list[str] | None = None) -> int:
         "proposer": args.proposer,
         "skill_runner": args.skill_runner,
         "judge": args.judge,
+        "effort": effort,
         "dry_run": args.dry_run,
         "holdout_gate_enabled": holdout_gate_on,
         "max_usd": args.max_usd,
@@ -539,9 +551,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.max_hours is not None:
         caps.append(f"--max-hours={args.max_hours}")
     cap_str = (" caps=" + ",".join(caps)) if caps else ""
+    effort_str = f" effort={effort}" if effort else ""
     print(f"Auto-loop v0.5.0 — mode={mode} holdout-gate={gate} proposer={args.proposer} "
-          f"skill-runner={args.skill_runner} judge={args.judge} max-iter={args.max_iterations}"
-          f"{cap_str}", file=sys.stderr)
+          f"skill-runner={args.skill_runner} judge={args.judge}{effort_str} "
+          f"max-iter={args.max_iterations}{cap_str}", file=sys.stderr)
     print(f"Cost estimate: initial ${initial_cost_est:.2f} + ~${iter_cost_est:.2f}/iter",
           file=sys.stderr)
     print(f"Audit dir: {audit.dir}", file=sys.stderr)
@@ -573,7 +586,7 @@ def main(argv: list[str] | None = None) -> int:
     # Initial baselines (cost accounted up-front per estimate; actual call burns subscription quota)
     if rotation_mode:
         print("[baseline] running visible-9 eval (for rotation picking)...", file=sys.stderr)
-        visible_baseline, _ = run_visible_eval(args.skill_runner, args.judge)
+        visible_baseline, _ = run_visible_eval(args.skill_runner, args.judge, effort)
         state["visible_baseline"] = visible_baseline
         state["original_visible"] = dict(visible_baseline)
         state["usd_spent"] += _estimate_eval_cost_usd(args.skill_runner, args.judge, n_fixtures=9)
@@ -585,7 +598,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if holdout_gate_on:
         print("[baseline] running held-out-3 eval (for gate)...", file=sys.stderr)
-        holdout_baseline, _ = run_holdout_eval(args.skill_runner, args.judge)
+        holdout_baseline, _ = run_holdout_eval(args.skill_runner, args.judge, effort)
         state["holdout_baseline"] = holdout_baseline
         state["original_holdout"] = dict(holdout_baseline)
         state["usd_spent"] += _estimate_eval_cost_usd(args.skill_runner, args.judge, n_fixtures=3)
@@ -623,7 +636,7 @@ def main(argv: list[str] | None = None) -> int:
         if state["baseline"] is None or target_id != state.get("baseline_target"):
             print(f"[iter {i}] running single-fixture target baseline...", file=sys.stderr)
             target_baseline, target_result = _run_eval_and_extract_result(
-                target_id, args.skill_runner, args.judge,
+                target_id, args.skill_runner, args.judge, effort,
             )
             state["baseline"] = target_baseline
             state["last_result"] = target_result
@@ -636,6 +649,7 @@ def main(argv: list[str] | None = None) -> int:
             procedure=procedure, rubric=rubric, audit=audit,
             client=proposer_client, proposer_model=args.proposer,
             skill_model=args.skill_runner, judge_model=args.judge,
+            effort=effort,
             dry_run=args.dry_run,
             holdout_gate_enabled=holdout_gate_on,
         )
