@@ -100,6 +100,12 @@ If a *global* preference triggers (filters a candidate, biases a form, or matche
 ## Step 3 — Find candidate problems worth fixing
 
 Look at `<recent_chat>` (reactive) or `<project_snapshot>` + `<telemetry_excerpt>` (proactive) and identify problems that are genuinely observable — actual behavior, not "Claude might one day…" hypotheticals. Strong candidates have clear evidence (a chat message, a telemetry row, a project convention) and aren't already addressed by what you found in Step 2.
+Common anti-patterns worth proposing when observed:
+- Editing generated code (`src/generated/**`, `**/__generated__/**`, `dist/**`)
+- Writing to binary files (`*.db`, `*.sqlite`, `*.pyc`)
+- Modifying lock files without the package manager
+- Editing `vendor/` or `node_modules/`
+When CLAUDE.md forbids an action but no `permissions.deny` rule exists, propose one (form 1).
 
 Cap yourself at ~5 candidates per run. If you see more, surface the best ones and mention the rest as deferred so the user can re-run.
 
