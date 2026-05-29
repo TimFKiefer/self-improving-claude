@@ -105,6 +105,7 @@ Common anti-patterns worth proposing when observed:
 - Writing to binary files (`*.db`, `*.sqlite`, `*.pyc`)
 - Modifying lock files without the package manager
 - Editing `vendor/` or `node_modules/`
+- Editing export statements without surfacing all call sites of the exported identifier
 When CLAUDE.md forbids an action but no `permissions.deny` rule exists, propose one (form 1).
 
 Cap yourself at ~5 candidates per run. If you see more, surface the best ones and mention the rest as deferred so the user can re-run.
