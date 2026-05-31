@@ -322,6 +322,7 @@ def run_iteration(*, i: int, target_id: str, baseline: dict, last_result: dict,
                   skill_model: str, judge_model: str, effort: str | None = None,
                   dry_run: bool = False,
                   holdout_gate_enabled: bool = True,
+                  confirmation_reruns: int = 2,
                   ) -> tuple[dict, dict | None, dict | None]:
     """Run one auto-loop iteration. Returns (new_baseline, new_result, new_holdout).
 
@@ -332,7 +333,7 @@ def run_iteration(*, i: int, target_id: str, baseline: dict, last_result: dict,
     """
     from evals.fixtures_lib import load_dataset
     from evals.edit_proposer import propose_edit
-    from evals.ratchet import strictly_better, regresses
+    from evals.ratchet import strictly_better, regresses, confirmation_verdict
 
     ts = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     entries = load_dataset()
@@ -435,7 +436,43 @@ def run_iteration(*, i: int, target_id: str, baseline: dict, last_result: dict,
             record["decision"] = "rejected: holdout_regression"
             audit.write_iteration(record)
             return baseline, last_result, holdout_baseline
-        # Held-out passed; commit
+        # 6.5 v0.5.1: confirmation re-run — a candidate keep must survive a
+        # best-of-N fresh re-check before commit (kills noise-driven keeps).
+        targets = [new_baseline]
+        holdouts = [new_holdout]
+        try:
+            for _ in range(confirmation_reruns):
+                t_more, _ = _run_eval_and_extract_result(
+                    target_id, skill_model, judge_model, effort)
+                h_more, _ = run_holdout_eval(skill_model, judge_model, effort)
+                targets.append(t_more)
+                holdouts.append(h_more)
+        except Exception as e:
+            git_reset_sync_paths()
+            record["confirmation"] = {
+                "target": [dict(t) for t in targets],
+                "holdout": [dict(h) for h in holdouts],
+                "verdict": "error",
+            }
+            record["decision"] = f"rejected: confirmation_eval_failed ({type(e).__name__})"
+            audit.write_iteration(record)
+            return baseline, last_result, holdout_baseline
+
+        confirmed = confirmation_verdict(targets, holdouts, baseline, holdout_baseline)
+        record["confirmation"] = {
+            "target": [dict(t) for t in targets],
+            "holdout": [dict(h) for h in holdouts],
+            "verdict": "kept" if confirmed else "rejected",
+        }
+        if not confirmed:
+            git_reset_sync_paths()
+            record["decision"] = "rejected: confirmation_failed"
+            audit.write_iteration(record)
+            return baseline, last_result, holdout_baseline
+
+        # Confirmed; commit. Advance held-out baseline to the last measurement.
+        new_holdout = holdouts[-1]
+        record["scores_holdout_after"] = dict(new_holdout)
         sha = git_commit_iteration(f"auto-loop[i={i}]: {proposal.hypothesis[:80]}")
         record["decision"] = "kept"
         record["commit_sha"] = sha
@@ -497,6 +534,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--effort", default=None,
                         help="thinking effort for skill-runner + judge (low|medium|high|xhigh|max). "
                              "Falls back to SANDBOX_EFFORT env var if unset.")
+    parser.add_argument("--confirm-reruns", type=int, default=2,
+                        help="extra confirmation re-checks before a keep is committed "
+                             "(default 2 → best-of-3; 0 = v0.5.0 behavior). Each adds one "
+                             "target + one held-out eval per candidate keep.")
     args = parser.parse_args(argv)
     import os
     effort = args.effort or os.environ.get("SANDBOX_EFFORT") or None
@@ -536,6 +577,7 @@ def main(argv: list[str] | None = None) -> int:
         "effort": effort,
         "dry_run": args.dry_run,
         "holdout_gate_enabled": holdout_gate_on,
+        "confirm_reruns": args.confirm_reruns,
         "max_usd": args.max_usd,
         "max_hours": args.max_hours,
         "iter_cost_est_usd": round(iter_cost_est, 4),
@@ -652,6 +694,7 @@ def main(argv: list[str] | None = None) -> int:
             effort=effort,
             dry_run=args.dry_run,
             holdout_gate_enabled=holdout_gate_on,
+            confirmation_reruns=args.confirm_reruns,
         )
         state["usd_spent"] += iter_cost_est  # upper-bound accumulation
         state["recent_picks"].append(target_id)

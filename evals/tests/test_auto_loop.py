@@ -448,3 +448,45 @@ def test_main_aborts_mid_loop_when_max_hours_hit(monkeypatch, tmp_path):
     iters = (runs[0] / "iterations.jsonl").read_text(encoding="utf-8").splitlines()
     n = len([l for l in iters if l.strip()])
     assert n < 100, f"expected --max-hours to abort early, got {n}"
+
+
+# ----- v0.5.1: --confirm-reruns flag tests ---------------------------------
+
+def test_confirm_reruns_flag_defaults_to_two():
+    import argparse
+    from evals.auto_loop import main
+    captured = {}
+    orig = argparse.ArgumentParser.parse_args
+
+    def spy(self, argv=None):
+        ns = orig(self, argv)
+        captured["ns"] = ns
+        raise SystemExit(0)  # stop before the loop runs
+
+    argparse.ArgumentParser.parse_args = spy
+    try:
+        with pytest.raises(SystemExit):
+            main([])
+    finally:
+        argparse.ArgumentParser.parse_args = orig
+    assert captured["ns"].confirm_reruns == 2
+
+
+def test_confirm_reruns_flag_override():
+    import argparse
+    from evals.auto_loop import main
+    captured = {}
+    orig = argparse.ArgumentParser.parse_args
+
+    def spy(self, argv=None):
+        ns = orig(self, argv)
+        captured["ns"] = ns
+        raise SystemExit(0)
+
+    argparse.ArgumentParser.parse_args = spy
+    try:
+        with pytest.raises(SystemExit):
+            main(["--confirm-reruns", "0"])
+    finally:
+        argparse.ArgumentParser.parse_args = orig
+    assert captured["ns"].confirm_reruns == 0
