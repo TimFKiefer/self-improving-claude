@@ -58,3 +58,28 @@ def regresses(new: dict, old: dict) -> bool:
         if d < -EPSILON[m]:
             return True
     return False
+
+
+def confirmation_verdict(targets: list[dict], holdouts: list[dict],
+                         baseline: dict, holdout_baseline: dict | None) -> bool:
+    """Best-of-N confirmation decision for a candidate keep (v0.5.1).
+
+    Keep iff the visible gain holds in a MAJORITY of the target measurements
+    AND held-out never regresses across ALL held-out measurements. The first
+    element of each list is the in-iteration measurement; the rest are the
+    confirmation re-runs. With one measurement each (confirm_reruns=0) this is
+    exactly the v0.5.0 keep rule.
+
+    Per-metric semantics reuse strictly_better / regresses, so the ε-discipline
+    and "reject ties" rule (§8.3) and the verifier-wall (§8.6) are identical.
+    """
+    if not targets:
+        return False
+    majority = len(targets) // 2 + 1
+    visible_hits = sum(1 for t in targets if strictly_better(t, baseline))
+    if visible_hits < majority:
+        return False
+    if holdout_baseline is not None:
+        if any(regresses(h, holdout_baseline) for h in holdouts):
+            return False
+    return True

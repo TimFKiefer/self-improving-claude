@@ -99,3 +99,64 @@ def test_regresses_catches_restraint_drop():
     old = _summary(restraint=10.0)
     new = _summary(restraint=5.0)
     assert regresses(new, old) is True
+
+
+class TestConfirmationVerdict:
+    GAIN = {"average_code": 8.0, "install_rate": 1.0}
+    NOISE = {"average_code": 6.0, "install_rate": 1.0}   # below baseline → not strictly better
+    BASE = {"average_code": 7.0, "install_rate": 1.0}
+    H_OK = {"average_code": 7.0, "install_rate": 1.0}
+    H_BASE = {"average_code": 7.0, "install_rate": 1.0}
+    H_REGRESS = {"average_code": 5.0, "install_rate": 1.0}
+
+    def test_all_three_gain_holdout_ok_keeps(self):
+        from evals.ratchet import confirmation_verdict
+        assert confirmation_verdict(
+            [self.GAIN, self.GAIN, self.GAIN],
+            [self.H_OK, self.H_OK, self.H_OK],
+            self.BASE, self.H_BASE) is True
+
+    def test_majority_gain_keeps(self):
+        from evals.ratchet import confirmation_verdict
+        # 2 of 3 visible gains (one noise dip) → majority holds
+        assert confirmation_verdict(
+            [self.GAIN, self.NOISE, self.GAIN],
+            [self.H_OK, self.H_OK, self.H_OK],
+            self.BASE, self.H_BASE) is True
+
+    def test_minority_gain_rejected(self):
+        from evals.ratchet import confirmation_verdict
+        # only 1 of 3 visible gains → below majority
+        assert confirmation_verdict(
+            [self.GAIN, self.NOISE, self.NOISE],
+            [self.H_OK, self.H_OK, self.H_OK],
+            self.BASE, self.H_BASE) is False
+
+    def test_any_holdout_regression_rejected(self):
+        from evals.ratchet import confirmation_verdict
+        # visible all gain, but held-out regresses on one of three → reject
+        assert confirmation_verdict(
+            [self.GAIN, self.GAIN, self.GAIN],
+            [self.H_OK, self.H_REGRESS, self.H_OK],
+            self.BASE, self.H_BASE) is False
+
+    def test_single_measurement_legacy_keep(self):
+        from evals.ratchet import confirmation_verdict
+        # confirm_reruns=0 → one measurement each; majority(1)=1 → legacy behavior
+        assert confirmation_verdict(
+            [self.GAIN], [self.H_OK], self.BASE, self.H_BASE) is True
+
+    def test_single_measurement_no_gain_rejected(self):
+        from evals.ratchet import confirmation_verdict
+        assert confirmation_verdict(
+            [self.NOISE], [self.H_OK], self.BASE, self.H_BASE) is False
+
+    def test_empty_targets_rejected(self):
+        from evals.ratchet import confirmation_verdict
+        assert confirmation_verdict([], [], self.BASE, self.H_BASE) is False
+
+    def test_none_holdout_baseline_skips_holdout_check(self):
+        from evals.ratchet import confirmation_verdict
+        # held-out gate disabled (holdout_baseline None) → holdout list ignored
+        assert confirmation_verdict(
+            [self.GAIN, self.GAIN], [], self.BASE, None) is True
