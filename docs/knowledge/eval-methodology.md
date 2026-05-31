@@ -183,3 +183,40 @@ So the eval is a *guardrail*, not a green light. We pair it with:
 5. **Use Haiku-class models for graders and dataset generation.** Course's recommendation; faster and cheaper for evaluative tasks.
 6. **A failing eval entry is a unit test.** Treat it the same way: don't ship a SKILL change that regresses a previously-passing entry without a documented reason.
 7. **Pair with at least one integration test.** Eval scores the proposal; integration tests confirm the proposal *runs* correctly when installed.
+
+## Variance budget (v0.5.1)
+
+The sandbox eval runs each fixture **once** per measurement. Single-shot scores
+carry **~±3 points/fixture** of run-to-run variance (LLM nondeterminism in both
+the skill-runner and the judge). That noise floor is larger than the small score
+deltas the auto-loop ratchet gates on — so a noise spike can clear epsilon and
+get a bad edit committed. This is the load-bearing v0.5.0 lesson: the haiku
+50-iter run kept 5 commits that all passed their in-iter held-out gates, but a
+*fresh* re-check (same code, different scores) showed the held-out had drifted,
+and all 5 were reverted.
+
+Two responses, both shipped in v0.5.1:
+
+1. **Confirmation re-run (best-of-3).** Before a candidate keep is committed, the
+   loop re-measures the target + held-out twice more and commits only if the
+   visible gain holds in the majority AND held-out never regresses. See
+   `evals.ratchet.confirmation_verdict`.
+2. **Fidelity config.** Use the strongest skill-runner + max thinking effort for
+   any run whose keeps you intend to trust. The opus + max-effort RC run produced
+   keeps that survived a fresh re-check; haiku + default effort did not.
+
+**Canonical fidelity command:**
+
+```bash
+python3 -m evals.auto_loop \
+  --proposer claude-sonnet-4-5 --skill-runner opus --judge opus --effort max \
+  --rotate-bottom-n 3 --max-iterations 20 --confirm-reruns 2 \
+  --max-usd 200 --max-hours 10
+```
+
+**Reproducibility caveats.** Keep-set reproducibility depends on more than eval
+noise: the edit-proposer is stochastic, and rotation picks the bottom-N by a
+noisy baseline, so two runs can target different fixtures and discover different
+(but equally valid) keeps. v0.5.1 documents this rather than forcing determinism
+(no fixed proposer seed). Measure reproducibility with `evals.reproducibility`,
+which reports a deterministic by-fixture floor and an advisory judge headline.

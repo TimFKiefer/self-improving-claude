@@ -415,3 +415,15 @@ Pre-fix run is committed at git `4fdd670`; the current `2026-05-27-v0.4.0-sandbo
 - **Net:** the targeted bug is fixed and statically guarded; the firing harness is now doing its deeper job — pointing at the *next* layer of hook-quality failures. A real `fire_rate` lift needs N>1 (to beat the noise) plus addressing the no-stdin / logic failure modes (and likely the override-fidelity issue — the headless override still yields rushed, variable proposals). Restraint also dropped to 0/0/0 (Opus lost its 5/10 from the pre-fix run) — within N=1 noise.
 
 Caveats unchanged (N=1, Opus-judges-Opus, forceful override). `stdin_envelope` was added to `grade_code` after the pre-fix run, so the post column's code grades include it.
+
+## Auto-loop fidelity & reproducibility (v0.5.1)
+
+The auto-loop's keeps are only trustworthy at a high-fidelity config. Run with
+opus skill-runner + max effort + `--confirm-reruns 2` (best-of-3 confirmation)
+for any run whose commits you intend to keep. See
+`docs/knowledge/eval-methodology.md` § "Variance budget" for the rationale.
+
+**Reproducibility check (deferred from v0.5.0):** measured with
+`python3 -m evals.reproducibility <reference_run_dir> <candidate_run_dir>`.
+
+<!-- v0.5.1 repro result recorded in Task 6 after the run completes -->
