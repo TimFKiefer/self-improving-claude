@@ -95,3 +95,15 @@ class ClaudeCliClient:
         return SimpleNamespace(
             content=[SimpleNamespace(type="text", text=result.stdout)]
         )
+
+    def complete(self, prompt: str, *, system: str | None = None,
+                 model: str | None = None) -> str:
+        """Simple single-turn completion. Returns the raw text string.
+
+        Convenience wrapper used by reproducibility.py's CLI judge lambda.
+        """
+        cli_model = _to_cli_model(model) if model else self.cli_model
+        messages = [{"role": "user", "content": prompt}]
+        response = self._create(model=cli_model, max_tokens=1024,
+                                messages=messages, system=system)
+        return response.content[0].text
