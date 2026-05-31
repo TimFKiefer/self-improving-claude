@@ -70,3 +70,15 @@ def test_judge_overlap_counts_reproduced(tmp_path):
     result = judge_overlap(ref, cand, fake_complete)
     assert result["fraction"] == 1 / 2
     assert len(calls) == 2  # one judge call per reference keep
+
+
+def test_judge_overlap_unparseable_falls_back_to_not_reproduced():
+    ref = [{"fixture": "002", "hypothesis": "h", "edit": {}}]
+    cand = [{"fixture": "002", "hypothesis": "h2", "edit": {}}]
+
+    def bad_complete(prompt: str) -> str:
+        return "this is not json at all"
+
+    result = judge_overlap(ref, cand, bad_complete)
+    assert result["fraction"] == 0.0
+    assert result["matches"][0]["reproduced"] is False

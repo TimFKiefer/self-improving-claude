@@ -160,3 +160,18 @@ class TestConfirmationVerdict:
         # held-out gate disabled (holdout_baseline None) → holdout list ignored
         assert confirmation_verdict(
             [self.GAIN, self.GAIN], [], self.BASE, None) is True
+
+    def test_two_measurements_split_rejected(self):
+        from evals.ratchet import confirmation_verdict
+        # n=2 → majority threshold 2; a 1-gain/1-noise split fails majority
+        assert confirmation_verdict(
+            [self.GAIN, self.NOISE],
+            [self.H_OK, self.H_OK],
+            self.BASE, self.H_BASE) is False
+
+    def test_two_measurements_both_gain_keeps(self):
+        from evals.ratchet import confirmation_verdict
+        assert confirmation_verdict(
+            [self.GAIN, self.GAIN],
+            [self.H_OK, self.H_OK],
+            self.BASE, self.H_BASE) is True
