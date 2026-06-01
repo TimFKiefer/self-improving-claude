@@ -1,0 +1,3 @@
+{"ts":"2026-05-27T10:12:04Z","tool":"Write","args_summary":"db/migrations/0042_add_user_role.sql","outcome":{"exit_code":0}}
+{"ts":"2026-05-27T10:14:22Z","tool":"Edit","args_summary":"db/migrations/0042_add_user_role.sql","outcome":{"exit_code":0}}
+{"ts":"2026-05-28T09:33:11Z","tool":"Write","args_summary":"db/migrations/0043_index_email.sql","outcome":{"exit_code":0}}

@@ -1,0 +1,6 @@
+{
+  "file": "plugin/skills/_shared/orchestrator-procedure.md",
+  "operation": "replace",
+  "anchor": "**This form is often missed** — use it whenever \"warn and let me confirm\" is the right semantic, not just \"block.\"",
+  "new_content": "**This form is often missed** — use it whenever \"warn and let me confirm\" is the right semantic, not just \"block.\" Map these signals to `permissions.ask` (not a blocking command-hook): 'human in the loop', 'confirm', 'ask me', 'let me decide', 'not a hard block'. Don't reject `permissions.ask` just because it covers more calls than the specific incident — if asking the user every time fits the intent, prefer it over selective filtering."
+}

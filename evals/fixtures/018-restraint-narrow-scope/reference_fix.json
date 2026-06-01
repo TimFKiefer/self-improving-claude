@@ -1,0 +1,7 @@
+{
+  "file": "plugin/skills/_shared/references/prompt-rubric.md",
+  "operation": "add",
+  "anchor": "- Hard-coded paths that should be env-vars → fix.",
+  "anchor_position": "after",
+  "new_content": "\n- **Over-broad scope** (catching the safe form to block the risky one) → scope the rule to the exact risky variant. Don't block all `git push` to catch `git push --force`; gate `git push --force` directly. A blanket rule that breaks routine safe operations is not justified by a single observed risky incident."
+}

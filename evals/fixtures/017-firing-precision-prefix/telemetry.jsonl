@@ -1,0 +1,4 @@
+{"ts":"2026-05-28T11:03:55Z","tool":"Bash","args_summary":"docker compose up","outcome":{"exit_code":143,"stderr_head":"timed out after 120s — process did not exit"}}
+{"ts":"2026-05-28T11:06:20Z","tool":"Bash","args_summary":"docker compose up","outcome":{"exit_code":143,"stderr_head":"timed out after 120s — process did not exit"}}
+{"ts":"2026-05-29T09:14:01Z","tool":"Bash","args_summary":"docker compose up","outcome":{"exit_code":143,"stderr_head":"timed out after 120s — process did not exit"}}
+{"ts":"2026-05-29T09:16:10Z","tool":"Bash","args_summary":"docker compose ps","outcome":{"exit_code":0}}

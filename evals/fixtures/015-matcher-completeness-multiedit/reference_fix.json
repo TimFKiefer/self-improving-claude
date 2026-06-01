@@ -1,0 +1,7 @@
+{
+  "file": "plugin/skills/_shared/references/prompt-rubric.md",
+  "operation": "add",
+  "anchor": "- Logic in the matcher that belongs in the script (regex with bash-specific shape) → simplify.",
+  "anchor_position": "after",
+  "new_content": "\n- Matcher too **narrow** (omitting a tool the model actually uses) → widen it. Edit-watching hooks must include `Write|Edit|MultiEdit` — all three file-modification tools. Omitting `MultiEdit` leaves a silent gap: the hook never fires when Claude applies several edits in one turn. Don't narrow to only the tools seen in telemetry; cover the full set."
+}

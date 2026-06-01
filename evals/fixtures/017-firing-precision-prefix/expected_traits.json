@@ -1,0 +1,8 @@
+{
+  "form": "command-hook",
+  "event": "PreToolUse",
+  "matcher": "Bash",
+  "blocks_command_prefix": "docker compose up",
+  "allows_command": "docker compose up -d",
+  "rationale_must_mention": ["docker compose up -d"]
+}

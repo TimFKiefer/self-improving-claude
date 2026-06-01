@@ -1,0 +1,7 @@
+{
+  "file": "plugin/skills/_shared/orchestrator-procedure.md",
+  "operation": "add",
+  "anchor": "come with a one-sentence rationale that names the bug AND why this form (not the lighter one in Step 4) was the right call",
+  "anchor_position": "after",
+  "new_content": "\n\n**Formatter vs. linter discipline.** If CLAUDE.md names a formatter (e.g. `ruff format`) and telemetry shows linter runs (`ruff check`) but no formatter runs after file edits, propose a PostToolUse hook that runs the declared *formatter* on `Write|Edit|MultiEdit`. The rationale must name the formatter (e.g. 'ruff format'), NOT the linter ('ruff check' / 'lint'). Linter errors are symptoms of missing formatting, not the fix."
+}

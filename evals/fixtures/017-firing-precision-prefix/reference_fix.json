@@ -1,0 +1,7 @@
+{
+  "file": "plugin/skills/_shared/references/prompt-rubric.md",
+  "operation": "add",
+  "anchor": "- Matcher too broad (`\"*\"` when `\"Bash\"` would do) → narrow it.",
+  "anchor_position": "after",
+  "new_content": "\n- **Prefix collision:** when the bad command is a prefix of a good one (e.g. `docker compose up` vs `docker compose up -d`), a `startsWith` guard also blocks the safe form. Match exact-equality or use a word-boundary check (`cmd.strip() == 'docker compose up'`), not bare `startsWith`. `permissions.deny` can't express this — use a command-hook with explicit exclusion of the allowed variant."
+}

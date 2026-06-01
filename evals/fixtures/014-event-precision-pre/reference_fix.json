@@ -1,0 +1,7 @@
+{
+  "file": "plugin/skills/_shared/orchestrator-procedure.md",
+  "operation": "add",
+  "anchor": "if the check is fast and deterministic and must BLOCK the tool call.",
+  "anchor_position": "after",
+  "new_content": "\n   **Event choice for blocking:** use `PreToolUse` when the goal is to STOP the action from happening. `PostToolUse` runs after the tool has already executed and cannot undo it — picking PostToolUse for a blocking rule means the write/edit has already landed by the time the hook fires. If the rule says 'never let this happen', the event must be `PreToolUse`."
+}
