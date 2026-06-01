@@ -174,7 +174,8 @@ def apply_edit(edit: dict, repo_root: Path = REPO_ROOT) -> tuple[bool, str]:
 
 def pick_target(visible_baseline: dict, target_fixture: str | None,
                 recent_picks: list[str] | None = None,
-                rotate_bottom_n: int = 3) -> str:
+                rotate_bottom_n: int = 3,
+                eligible_ids: set[str] | None = None) -> str:
     """If target_fixture is set, always return it (α fixed-target mode).
     Otherwise (β rotation): pick the lowest-composite-score visible fixture
     among the bottom-N, skipping any picked in the last 2 iterations.
@@ -182,8 +183,10 @@ def pick_target(visible_baseline: dict, target_fixture: str | None,
     if target_fixture:
         return target_fixture
     entries = visible_baseline.get("entries", [])
+    if eligible_ids is not None:
+        entries = [e for e in entries if e["id"] in eligible_ids]
     if not entries:
-        raise ValueError("no visible entries to pick a target from")
+        raise ValueError("no eligible visible entries to pick a target from")
 
     def composite(e):
         return (e.get("code_max", 0.0) or 0.0) + (e.get("install_rate", 0.0) or 0.0) * 10
@@ -620,6 +623,15 @@ def main(argv: list[str] | None = None) -> int:
     proposer_client = ClaudeCliClient()
     procedure, rubric = _read_slow_state()
 
+    # eval-suite-headroom: rotate only over headroom-tier fixtures (calibrated).
+    from evals.fixtures_lib import load_dataset
+    eligible_ids = {e["id"] for e in load_dataset()
+                    if e.get("tier") == "headroom" and e.get("rotation", True)}
+    if args.target_fixture is None and not eligible_ids:
+        print("[headroom] no headroom-tier fixtures in dataset.json — run "
+              "`python3 -m evals.calibrate --write` or author fixtures first.", file=sys.stderr)
+        return 2
+
     # SIGINT handler — write summary and exit cleanly
     state = {"baseline": None, "last_result": None, "holdout_baseline": None,
              "iteration": 0, "recent_picks": [], "kept": 0,
@@ -686,6 +698,7 @@ def main(argv: list[str] | None = None) -> int:
                                                        "code_max": 0, "install_rate": 0}]},
             args.target_fixture,
             state["recent_picks"], args.rotate_bottom_n,
+            eligible_ids=(None if args.target_fixture else eligible_ids),
         )
         print(f"\n[iter {i}/{args.max_iterations}] target={target_id} proposing edit...",
               file=sys.stderr)

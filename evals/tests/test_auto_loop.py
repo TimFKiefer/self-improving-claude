@@ -160,7 +160,7 @@ def test_pick_target_picks_lowest_composite_when_unspecified():
 
 
 def test_pick_target_raises_on_empty_baseline():
-    with pytest.raises(ValueError, match="no visible"):
+    with pytest.raises(ValueError, match="no eligible"):
         pick_target({"entries": []}, None)
 
 
@@ -384,8 +384,13 @@ def _setup_main_mocks(monkeypatch, tmp_path):
     """Common scaffold for cap-enforcement tests: stub all heavy I/O on al + on
     run_iteration's collaborators so the loop body never makes real calls."""
     import evals.auto_loop as al
+    import evals.fixtures_lib as fl
     monkeypatch.setattr(al, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(al, "_check_clean_tree", lambda: None)
+    # Provide a headroom-tier fixture so the eligible_ids guard doesn't abort.
+    headroom_dataset = [{"id": "fx-1", "code_max": 5, "install_rate": 0.5,
+                         "tier": "headroom", "rotation": True}]
+    monkeypatch.setattr(fl, "load_dataset", lambda: headroom_dataset)
     visible_stub = {"entries": [{"id": "fx-1", "code_max": 5, "install_rate": 0.5}],
                     "average_code": 5.0, "install_rate": 0.5,
                     "fire_rate": None, "average_restraint": None}
@@ -509,3 +514,27 @@ def test_confirmation_cost_scales_linearly_with_reruns():
     one = _estimate_confirmation_cost_usd("haiku", "opus", 1)
     three = _estimate_confirmation_cost_usd("haiku", "opus", 3)
     assert abs(three - 3 * one) < 1e-9
+
+
+# ----- eval-suite-headroom: eligible_ids filtering -------------------------
+
+def test_pick_target_filters_to_eligible_ids():
+    visible_baseline = {"entries": [
+        {"id": "low",  "code_max": 3.0, "install_rate": 0.0},   # lowest, but not eligible
+        {"id": "mid",  "code_max": 5.0, "install_rate": 0.5},   # eligible
+        {"id": "high", "code_max": 9.0, "install_rate": 1.0},
+    ]}
+    # 'low' is saturated/retired → excluded; 'mid' is the lowest ELIGIBLE
+    assert pick_target(visible_baseline, None, eligible_ids={"mid", "high"}) == "mid"
+
+def test_pick_target_eligible_none_means_all():
+    visible_baseline = {"entries": [
+        {"id": "low",  "code_max": 3.0, "install_rate": 0.0},
+        {"id": "high", "code_max": 9.0, "install_rate": 1.0},
+    ]}
+    assert pick_target(visible_baseline, None, eligible_ids=None) == "low"
+
+def test_pick_target_raises_when_no_eligible():
+    visible_baseline = {"entries": [{"id": "a", "code_max": 3.0, "install_rate": 0.0}]}
+    with pytest.raises(ValueError, match="no eligible"):
+        pick_target(visible_baseline, None, eligible_ids=set())
