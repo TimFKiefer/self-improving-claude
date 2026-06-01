@@ -49,3 +49,47 @@ def test_ab_verdict_false_on_tie():
     base = _s(code=8.0, install=1.0)
     fixed = _s(code=8.0, install=1.0)
     assert ab_verdict(base, fixed) is False
+
+
+def test_run_reference_fix_ab_reverts_on_eval_error(monkeypatch):
+    import evals.calibrate as cal
+    calls = {"applied": False, "synced": False, "reverted": False}
+    monkeypatch.setattr(cal, "apply_edit", lambda edit: (calls.__setitem__("applied", True) or (True, "ok")))
+    monkeypatch.setattr(cal, "run_sync_skills", lambda: (calls.__setitem__("synced", True) or (True, "ok")))
+    monkeypatch.setattr(cal, "git_reset_sync_paths", lambda: calls.__setitem__("reverted", True))
+    def boom(*a, **k):
+        raise RuntimeError("eval failed")
+    monkeypatch.setattr(cal, "calibrate_fixture", boom)
+    fixed, msg = cal.run_reference_fix_ab(
+        "013-x", {"file": "f", "operation": "add"}, {"average_code": 4.0},
+        n=1, skill_model="opus", judge_model="opus", effort="max")
+    assert fixed is None
+    assert calls["reverted"] is True   # MUST revert even though the eval raised
+
+
+def test_ab_verdict_true_at_exact_ceiling_eight():
+    from evals.calibrate import ab_verdict
+    assert ab_verdict({"average_code": 4.0, "install_rate": 1.0},
+                      {"average_code": 8.0, "install_rate": 1.0}) is True
+
+
+def test_classify_tier_code_exactly_three_is_headroom():
+    from evals.calibrate import classify_tier
+    assert classify_tier({"average_code": 3.0, "install_rate": 1.0}) == "headroom"
+
+
+def test_classify_tier_code_just_below_three_is_brick():
+    from evals.calibrate import classify_tier
+    assert classify_tier({"average_code": 2.99, "install_rate": 1.0}) == "brick"
+
+
+def test_median_summary_even_count_averages_two_middle():
+    from evals.calibrate import median_summary
+    out = median_summary([{"install_rate": 0.0}, {"install_rate": 1.0}])
+    assert out["install_rate"] == 0.5
+
+
+def test_median_summary_empty_list_all_none():
+    from evals.calibrate import median_summary
+    out = median_summary([])
+    assert out["average_code"] is None and out["install_rate"] is None
