@@ -455,6 +455,16 @@ def test_main_aborts_mid_loop_when_max_hours_hit(monkeypatch, tmp_path):
     assert n < 100, f"expected --max-hours to abort early, got {n}"
 
 
+def test_main_returns_2_when_no_headroom_fixtures(monkeypatch, tmp_path):
+    """Rotation mode with an uncalibrated/empty headroom set must refuse to start."""
+    al = _setup_main_mocks(monkeypatch, tmp_path)
+    import evals.fixtures_lib as fl
+    monkeypatch.setattr(fl, "load_dataset", lambda: [])  # no headroom-tier fixtures
+    rc = al.main(["--skill-runner", "haiku", "--judge", "opus",
+                  "--proposer", "claude-sonnet-4-5"])
+    assert rc == 2
+
+
 # ----- v0.5.1: --confirm-reruns flag tests ---------------------------------
 
 def test_confirm_reruns_flag_defaults_to_two():
