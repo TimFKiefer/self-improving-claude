@@ -221,7 +221,7 @@ Haiku-proposes-and-Haiku-grades is the highest scorer — partly the grader-bias
 - [ ] At least one auto-kept commit demonstrates a win the prompt-lab session didn't find
 - [ ] Plugin version bumped 0.4.1 → 0.5.0; tag annotated
 
-**Reproducibility check** (spec criterion: re-running produces > 50% keep-set overlap) is **deferred to v0.5.1** — a 50-iter rerun is its own $50.
+**Reproducibility check** (spec criterion: > 50% keep-set overlap) — **done in v0.5.1: 0% overlap** (one fresh opus+max run vs the RC keep-set, $113.91). A documented finding, not a blocker: the confirmation re-run hardens the keep *decision* (it caught 2 noise-keeps) but reproducibility is gated by *target selection*, which still rides on a single-shot baseline (`006`/`007` scored 10.0/saturated in the rerun, never targeted). Noise-robust target selection carries to v0.6.
 
 ---
 
@@ -401,7 +401,7 @@ The only invariants:
 
 ---
 
-**Last updated:** 2026-05-29, alongside the v0.5.0 tag. Path A shipped — auto-loop is live with 4 surviving auto-discovered improvements (`fc8e57d`, `c6c5bac`, `f627357`, `4915a20`). The load-bearing v0.5.0 finding for v0.5.1: sampling fidelity matters as much as gate discipline (haiku-precision evals had ±3 point/fixture variance, washing out small Δs; opus + max effort resolves it at higher cost).
+**Last updated:** 2026-06-01, alongside the v0.5.1 tag. v0.5.1 added the confirmation re-run (best-of-3 before commit) and ran the deferred reproducibility check: **0% keep-set overlap** vs the RC run. The confirmation re-run works (it rejected 2 noise-keeps the single-shot loop would have kept), but reproducibility is gated by *target selection* — which still rides on a single-shot baseline (`006`/`007` scored 10.0/saturated in the rerun, never targeted). The v0.5.1 finding for v0.6: give the rotation/baseline the same noise-robustness the keep decision now has (multi-sample the baseline, or fix targets).
 
 **Linked artifacts:**
 - [`docs/VISION.md`](VISION.md) — what we're building toward

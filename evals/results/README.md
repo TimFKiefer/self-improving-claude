@@ -426,4 +426,21 @@ for any run whose commits you intend to keep. See
 **Reproducibility check (deferred from v0.5.0):** measured with
 `python3 -m evals.reproducibility <reference_run_dir> <candidate_run_dir>`.
 
-<!-- v0.5.1 repro result recorded in Task 6 after the run completes -->
+**v0.5.1 result (2026-06-01):** one fresh layered run (opus skill-runner, max
+effort, `--confirm-reruns 2`, 20 iter, $113.91, 11.3h) from the pre-RC baseline
+(`15cb51e`) vs the RC keep-set (`c6c5bac`/`f627357`/`4915a20`):
+
+- **by-fixture overlap: 0%** · **judge overlap: 0%** — the run kept 1/20
+  (`001-pnpm-test-watcher`, a Bash prefix-vs-exact matcher fix), none of the 3
+  RC keeps. **Below the >50% spec bar.**
+- **The confirmation re-run worked:** 2 `confirmation_failed` rejections caught
+  noise-driven keeps the single-shot v0.5.0 loop would have committed (+2
+  held-out-regression rejections).
+- **Why 0%:** reproducibility is gated by *target selection*, not just the keep
+  decision. In this run's baseline `006`/`007` scored 10.0 (saturated → never
+  targeted) and `003` was targeted but yielded no passing edit — same code,
+  different scores (±3-pt baseline noise). The confirmation re-run hardens the
+  keep *decision* but runs *after* target selection, so it can't make the
+  rotation pick the same fixtures. **v0.6 input:** noise-robust target selection
+  (multi-sample the baseline, or fix targets) is the missing piece for
+  reproducible keep-sets.

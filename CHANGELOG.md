@@ -2,6 +2,51 @@
 
 All notable changes to `self-improving-claude` are documented here.
 
+## [0.5.1] — 2026-06-01 — Sampling fidelity & reproducibility
+
+Pays off the two items v0.5.0 deferred: act on the sampling-fidelity lesson, and
+run the reproducibility check.
+
+### Confirmation re-run (best-of-3)
+
+A candidate keep must now survive a fresh re-check before commit: the visible
+gain must hold in ≥2 of 3 target measurements AND held-out must never regress
+across all 3 (`evals.ratchet.confirmation_verdict` + a stage in `run_iteration`).
+New flag `--confirm-reruns` (default 2; `0` reproduces v0.5.0 exactly).
+Confirmation measurements are recorded on each audit row. The `--max-usd` cap now
+bills the confirmation re-runs that fire on a keep.
+
+### Reproducibility check — measured, and the answer is *no* (with a precise why)
+
+One fresh layered run from the pre-RC baseline (`15cb51e`; opus+max, 20 iter,
+$113.91, 11.3h) compared to the RC keep-set via the new `evals.reproducibility`
+tool (deterministic by-fixture floor + advisory judge headline):
+
+- **0% keep-set overlap** (by-fixture 0%, judge 0%) — below the >50% spec bar.
+  The run kept 1/20 (`001-pnpm-test-watcher`), none of RC's `003`/`006`/`007`.
+- **The confirmation re-run did its job:** it rejected 2 noise-driven keeps the
+  v0.5.0 single-shot loop would have committed.
+- **Root cause (the v0.5.1 lesson):** reproducibility is dominated by *target
+  selection*, which rides on a single-shot baseline measurement. `006`/`007`
+  scored 10.0 (saturated → never targeted) in this run; same code, different
+  scores. The confirmation re-run hardens the keep *decision* but runs *after*
+  target selection. **Carries to v0.6:** the rotation/baseline needs the same
+  noise-robustness the keep decision now has.
+
+### Docs & tests
+
+`docs/knowledge/eval-methodology.md` gains a "Variance budget" section; the
+canonical fidelity command is documented in `evals/results/README.md`. New tests
+cover `confirmation_verdict` (incl. the n=2 boundary), the `--confirm-reruns`
+flag, the reproducibility overlap math + judge unparseable-fallback, and the
+confirmation cost billing. Suite: **246 passing, 1 skipped.**
+
+### Reproducibility note
+
+This is one fresh run vs the RC keep-set, not a two-run gold standard — the RC
+used the pre-confirmation methodology, so it measures "do RC's keeps re-emerge
+under the stronger loop." A two-fresh-run comparison remains available later.
+
 ## [0.5.0] — 2026-05-29 — The Self-Improvement Loop
 
 The project's name stops being a promise. v0.5.0 ships the auto-loop as a tagged, runnable command — `python3 -m evals.auto_loop` — with cost caps, held-out gating, and an audit log per run. Auto-discovered improvements that survive the gate land as `auto-loop[i=N]: ...` commits on `main`. Three such commits ship in this tag; four prior auto-loop kepts (across α and β attempts) were reverted after held-out re-check exposed eval-sampling variance — those reverts are the load-bearing lesson v0.5.0 delivers to v0.5.1.

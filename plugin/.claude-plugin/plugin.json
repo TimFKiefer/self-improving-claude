@@ -1,6 +1,6 @@
 {
   "name": "self-improving-claude",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Turns the bugs you just saw into the hooks that prevent the next ones — a Claude Code plugin that uses /improve and /improve-init to convert observed footguns into per-project hooks, with explicit per-hook user approval.",
   "author": {
     "name": "Tim Kiefer",
