@@ -490,3 +490,22 @@ def test_confirm_reruns_flag_override():
     finally:
         argparse.ArgumentParser.parse_args = orig
     assert captured["ns"].confirm_reruns == 0
+
+
+# ----- v0.5.1: _estimate_confirmation_cost_usd tests ----------------------
+
+def test_confirmation_cost_zero_when_no_reruns():
+    from evals.auto_loop import _estimate_confirmation_cost_usd
+    assert _estimate_confirmation_cost_usd("opus", "opus", 0) == 0.0
+
+def test_confirmation_cost_is_four_fixture_evals_per_rerun():
+    from evals.auto_loop import _estimate_confirmation_cost_usd, _estimate_eval_cost_usd
+    # 2 reruns × (1 target + 3 holdout) = 8 fixture-evals
+    expected = _estimate_eval_cost_usd("opus", "opus", n_fixtures=8)
+    assert abs(_estimate_confirmation_cost_usd("opus", "opus", 2) - expected) < 1e-9
+
+def test_confirmation_cost_scales_linearly_with_reruns():
+    from evals.auto_loop import _estimate_confirmation_cost_usd
+    one = _estimate_confirmation_cost_usd("haiku", "opus", 1)
+    three = _estimate_confirmation_cost_usd("haiku", "opus", 3)
+    assert abs(three - 3 * one) < 1e-9

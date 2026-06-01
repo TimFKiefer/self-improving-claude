@@ -78,11 +78,22 @@ def _estimate_proposer_cost_usd(proposer_model: str) -> float:
             + PROPOSER_OUTPUT_TOKENS * p["out"]) / 1_000_000
 
 
+def _estimate_confirmation_cost_usd(skill_model: str, judge_model: str,
+                                     confirmation_reruns: int) -> float:
+    """USD for the confirmation re-runs that fire only on a KEPT iteration.
+    Each rerun = one target (1 fixture) + one held-out (3 fixtures) = 4 fixture-evals.
+    Billed separately from _estimate_iteration_cost_usd (which is the per-iteration
+    floor and excludes confirmation, since confirmation runs only on keeps)."""
+    return _estimate_eval_cost_usd(skill_model, judge_model,
+                                   n_fixtures=4 * confirmation_reruns)
+
+
 def _estimate_iteration_cost_usd(*, skill_model: str, judge_model: str,
                                   proposer_model: str, holdout_gate_on: bool) -> float:
     """Upper-bound USD estimate for one iteration: proposer + single-fixture
     visible eval + (if held-out gate on AND visible would pass) 3-fixture
-    held-out eval. We assume held-out runs to be conservative."""
+    held-out eval. We assume held-out runs to be conservative.
+    Excludes confirmation re-runs (billed on the keep path via _estimate_confirmation_cost_usd)."""
     cost = _estimate_proposer_cost_usd(proposer_model)
     cost += _estimate_eval_cost_usd(skill_model, judge_model, n_fixtures=1)
     if holdout_gate_on:
@@ -471,6 +482,8 @@ def run_iteration(*, i: int, target_id: str, baseline: dict, last_result: dict,
             return baseline, last_result, holdout_baseline
 
         # Confirmed; commit. Advance held-out baseline to the last measurement.
+        # last == freshest post-edit held-out measurement; all measurements
+        # passed the no-regress check, so any is a safe ratchet baseline.
         new_holdout = holdouts[-1]
         record["scores_holdout_after"] = dict(new_holdout)
         sha = git_commit_iteration(f"auto-loop[i={i}]: {proposal.hypothesis[:80]}")
@@ -537,7 +550,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--confirm-reruns", type=int, default=2,
                         help="extra confirmation re-checks before a keep is committed "
                              "(default 2 → best-of-3; 0 = v0.5.0 behavior). Each adds one "
-                             "target + one held-out eval per candidate keep.")
+                             "target + one held-out eval per candidate keep."
+                             " Majority = n//2+1, so odd values (giving an odd total incl. the"
+                             " in-iter measurement) are the intended sweet spot; an even total"
+                             " demands unanimity.")
     args = parser.parse_args(argv)
     import os
     effort = args.effort or os.environ.get("SANDBOX_EFFORT") or None
@@ -700,6 +716,8 @@ def main(argv: list[str] | None = None) -> int:
         state["recent_picks"].append(target_id)
         if new_baseline is not state["baseline"]:
             state["kept"] += 1
+            state["usd_spent"] += _estimate_confirmation_cost_usd(
+                args.skill_runner, args.judge, args.confirm_reruns)
             print(f"[iter {i}] KEPT — target {target_id} code "
                   f"{state['baseline'].get('average_code'):.2f} → "
                   f"{new_baseline.get('average_code'):.2f}", file=sys.stderr)

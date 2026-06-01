@@ -82,3 +82,39 @@ def test_judge_overlap_unparseable_falls_back_to_not_reproduced():
     result = judge_overlap(ref, cand, bad_complete)
     assert result["fraction"] == 0.0
     assert result["matches"][0]["reproduced"] is False
+
+
+def test_load_keeps_skips_malformed_lines(tmp_path):
+    d = tmp_path / "run"
+    d.mkdir()
+    (d / "iterations.jsonl").write_text(
+        '{"decision": "kept", "fixture": "002", "commit_sha": "a", "hypothesis": "h", "edit": {}}\n'
+        'this is not json\n'
+        '{"decision": "kept", "fixture": "006", "commit_sha": "b", "hypothesis": "h", "edit": {}}\n',
+        encoding="utf-8")
+    keeps = load_keeps(d)
+    assert [k["fixture"] for k in keeps] == ["002", "006"]
+
+
+def test_format_report_renders_floor_and_judge():
+    from evals.reproducibility import format_report
+    ref = [{"fixture": "002", "hypothesis": "fix dot", "commit_sha": "aaa"}]
+    cand = [{"fixture": "002", "hypothesis": "dot fix", "commit_sha": "bbb"}]
+    by_fixture = {"fraction": 1.0, "matched": {"002"},
+                  "reference_fixtures": {"002"}, "candidate_fixtures": {"002"}}
+    judge = {"fraction": 1.0, "matches": [
+        {"reference_fixture": "002", "reproduced": True, "reasoning": "same defect"}]}
+    out = format_report(ref, cand, by_fixture, judge)
+    assert "by-fixture overlap (floor):** 100%" in out
+    assert "judge overlap (headline):** 100%" in out
+    assert "✓ 002" in out
+
+def test_format_report_omits_judge_when_none():
+    from evals.reproducibility import format_report
+    ref = [{"fixture": "002", "hypothesis": "h", "commit_sha": "a"}]
+    cand = []
+    by_fixture = {"fraction": 0.0, "matched": set(),
+                  "reference_fixtures": {"002"}, "candidate_fixtures": set()}
+    out = format_report(ref, cand, by_fixture, None)
+    assert "judge overlap" not in out
+    assert "Judge verdicts" not in out

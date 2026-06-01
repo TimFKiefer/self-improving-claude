@@ -29,7 +29,10 @@ def load_keeps(run_dir: Path) -> list[dict]:
             line = line.strip()
             if not line:
                 continue
-            rec = json.loads(line)
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
             if rec.get("decision") == "kept":
                 keeps.append(rec)
     return keeps
