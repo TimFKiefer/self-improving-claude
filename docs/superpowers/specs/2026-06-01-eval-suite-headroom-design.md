@@ -44,27 +44,27 @@ The v0.5.1 confirmation re-run already works (it rejected 2 noise-keeps). This e
 
 ### 4.1 Tiers + the calibration gate
 
-A fixture's **tier** is a function of the current orchestrator's multi-sampled median code score:
+A fixture's **tier** is computed from the current orchestrator's multi-sampled (N=5) **median summary** over the loop's *gating composite* — `average_code`, `install_rate`, `fire_rate`, `average_restraint` — reusing the loop's own `is_saturated`/`strictly_better`. (Refined from a code-only band so that "calibration-headroom" means exactly "loop-improvable" per `prompt-engineering.md` §8.6 — the loop optimizes the gating composite, not the model judge or `required_rules` coverage.)
 
-| Tier | Band (median code) | Rotation? | Role |
+| Tier | Condition (on the median summary) | Rotation? | Role |
 |---|---|---|---|
-| `saturated` | ≥ 8 | no | Regression guard — runs in the full eval + held-out gate; never targeted. |
-| `headroom` | 3 ≤ m < 8 | **yes** | The loop's fuel. |
-| `brick` | < 3 | no | Quarantined; flagged for investigation. |
-| `restraint` | (n/a — `expect_no_proposal`) | no | Restraint guard (011/012); scored on the restraint axis, not a rotation target. |
+| `restraint` | fixture has `expect_no_proposal` | no | Restraint guard (011/012); scored on the restraint axis. |
+| `saturated` | `is_saturated(median)` — all gating metrics at ceiling | no | Regression guard — runs in the full eval + held-out gate; never targeted. |
+| `headroom` | not saturated AND (reference-fix A/B passed, or — for un-fixed fixtures — `average_code ≥ 3`) | **yes** | The loop's fuel. |
+| `brick` | not saturated AND (A/B failed, or `average_code < 3` with no A/B) | no | Quarantined; flagged for investigation (e.g. today's `003`). |
 
-Cutoffs are closed with no gap: `median ≥ 8 → saturated`, else `median ≥ 3 → headroom`, else `brick`. `classify_tier(median_code, has_expect_no_proposal) -> str` is a **pure function** (unit-tested) — a fixture with `expect_no_proposal` is always `restraint` regardless of score. Calibration runs N=5 single-fixture evals, takes the median, and classifies.
+`classify_tier(median_summary, *, expect_no_proposal=False, ab_passed=None) -> str` is a **pure function** (unit-tested). New fixtures carry a `reference_fix`, so their tier is decided by the A/B (`ab_passed`); existing fixtures without one fall back to the `average_code` floor.
 
 ### 4.2 The taxonomy — ~6 new fixtures (one per weakness axis)
 
-Each targets a failure mode where today's orchestrator scores *partially* (mid-band), and each is authored alongside the instruction edit that would close it:
+Each axis is **anchored to a metric the loop actually gates** (not `required_rules` coverage, which `grade_code` computes separately and the loop cannot move — that's why the original "multi-rule completeness" and "composed multi-hook" axes were dropped: they were brick-by-construction). Each is **grounded in a specific v0.5.0 reverted keep** — a gap the loop already fixed before it was *noise*-reverted, so the gap persists on `main` and the fixing edit is known:
 
-1. **Multi-rule completeness** — a `permissions.deny` requiring 3 forbidden paths; the orchestrator reliably covers ~2. (A *calibrated* `003` — lands mid-band, not 0.) Reference fix: a procedure cue to enumerate *all* CLAUDE.md-forbidden paths.
-2. **Matcher precision** — prefix-vs-exact / glob breadth where the orchestrator over- or under-matches (the `001` keep hinted here). Reference fix: a rubric line on exact-vs-prefix Bash matching.
-3. **Form disambiguation** — a scenario sitting between `permissions.ask` / `.deny` / command-hook where the orchestrator picks a defensible-but-suboptimal form. Reference fix: a Step-4 decision cue (human-in-loop → `.ask`; hard-forbid → `.deny`; logic → hook).
-4. **Content-vs-path** — a defect a path glob can't catch (needs content scanning), with a twist beyond the easy `008`. Reference fix: an anti-pattern note "path globs can't gate on content."
-5. **Composed multi-hook** — a footgun genuinely needing *two* coordinated hooks (e.g., PreToolUse block + PostToolUse check); the orchestrator proposes one. Reference fix: an example of a composed solution.
-6. **Restraint edge case** — the correct answer is a *narrow* rule; the orchestrator over-blocks (harder than `011/012`). Reference fix: a restraint cue to scope rules minimally.
+1. **013 form-disambiguation** (gating: `average_code`/form) — `permissions.ask` vs `.deny` vs command-hook; orchestrator over-blocks or over-builds. Evidence: i13, i3. Reference fix: a Step-4 decision boundary (human-in-loop → `.ask`).
+2. **014 event-precision** (gating: `average_code`/event) — a blocking need; orchestrator picks `PostToolUse` (can't block) instead of `PreToolUse`. Evidence: `hooks-and-sdk.md` §4. Reference fix: "blocking requires `PreToolUse`."
+3. **015 matcher-completeness** (gating: `average_code`/matcher) — omits `MultiEdit` from a `Write|Edit|MultiEdit` matcher. Evidence: i29, i41. Reference fix: "match all three; omitting `MultiEdit` leaves a silent gap."
+4. **016 rationale-specificity** (gating: `average_code`/rationale) — names the linter (`ruff check`) where the formatter (`ruff format`) is required. Evidence: i26. Reference fix: "name the exact tool; a formatter is not a linter."
+5. **017 firing-precision** (gating: `fire_rate`) — prefix-collision: `startsWith` blocks the good command too (passthrough fails). Evidence: `ea04a34`, `001`. Reference fix: "match the exact bad form, not the prefix."
+6. **018 restraint-narrow-scope** (gating: `average_restraint`) — blanket-blocks the safe form to catch the risky one (`git push` vs `git push --force`). Evidence: 011/012. Reference fix: "scope to the exact risky variant."
 
 Each new fixture follows the existing `dataset.json` shape (`planted_problem`, `expected_hook_traits`, optional `firing_test`) plus a fixture-dir project snapshot, exactly like the current 12.
 
@@ -80,10 +80,10 @@ if tier == "headroom" and reference_fix exists:
     run_sync_skills()                    # reuse evals.auto_loop.run_sync_skills
     fixed = median(eval(fixture) ×N)
     git_reset_sync_paths()               # REVERT — the fix is never shipped
-    headroom_verified = (fixed - base >= 2) and (fixed >= 8)
+    headroom_verified = ab_verdict(base, fixed)
 ```
 
-`ab_verdict(base_median, fixed_median) -> bool` (the `Δ≥2 and fixed≥8` rule) is a **pure function** (unit-tested). The reference fix is applied to the working-tree slow-state, scored, then reverted (`git_reset_sync_paths`) — it never lands in the shipped orchestrator, so the loop must *rediscover* it. This is the answer key for G5.
+`ab_verdict(base_summary, fixed_summary) -> bool` — the fix closes the gap iff it is `strictly_better` on the gating composite AND lands near ceiling (`is_saturated(fixed)` or `average_code ≥ 8`). It reuses the loop's own `strictly_better`/`is_saturated`, so a passing A/B means the loop's gates would accept the same improvement. A **pure function** (unit-tested). The reference fix is applied to the working-tree slow-state, scored, then reverted (`git_reset_sync_paths`) — it never lands in the shipped orchestrator, so the loop must *rediscover* it. This is the answer key for G5.
 
 ### 4.4 Dataset schema additions
 
