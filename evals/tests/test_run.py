@@ -207,13 +207,17 @@ from evals.run import _installed_ok, _aggregate_sandbox, _compute_skill_size
 
 
 def test_dataset_has_three_holdout_entries():
-    """v0.4.1: dataset.json defines a 9-visible / 3-holdout split."""
+    """The held-out validation set is fixed at 3; visible is everything else.
+
+    (The visible set grew past v0.4.1's 9 when the eval-suite-headroom work added
+    fixtures 013-018; the held-out invariant — exactly 3, one of each type — holds.)
+    """
     from evals.fixtures_lib import load_dataset
     ds = load_dataset()
     visible = [e for e in ds if not e.get("holdout")]
     holdout = [e for e in ds if e.get("holdout")]
     assert len(holdout) == 3, f"expected 3 holdout, got {len(holdout)}: {[e['id'] for e in holdout]}"
-    assert len(visible) == 9, f"expected 9 visible, got {len(visible)}"
+    assert len(visible) == len(ds) - 3, f"expected {len(ds) - 3} visible, got {len(visible)}"
     # Each subset must keep at least one of each type for representativeness
     hold_ids = {e["id"] for e in holdout}
     assert any("secret-in-source" in i for i in hold_ids), "holdout needs a firing fixture"
