@@ -2,7 +2,7 @@
 
 > A Claude Code plugin that turns the bugs you just saw into the hooks that prevent the next ones — per-project guardrails proposed by Claude itself, installed only with your explicit approval.
 
-**Status:** v0.3.0 — public release.
+**Status:** v0.5.2 — the self-improvement loop is real. An autonomous loop (`evals/auto_loop.py`) optimizes the orchestrator skill against a calibrated eval suite; git is the ratchet. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full release history and [`docs/VISION.md`](docs/VISION.md) for the north star.
 
 ## What it does
 
@@ -104,7 +104,7 @@ This is feedback-mode — it logs your complaint to `.claude/self-improving-clau
 
 ## Design docs & evals
 
-- `docs/superpowers/specs/` — full design specs for v0.1, v0.2, v0.3
+- `docs/superpowers/specs/` — full design specs (v0.1 through v0.5.x)
 - `docs/superpowers/plans/` — implementation plans
 - `docs/knowledge/` — distilled Claude Code course material that grounds the design
 - `docs/anthropic-marketplace-pr.md` — materials for publishing to the official marketplace
@@ -114,10 +114,13 @@ Baselines committed to `evals/results/`.
 
 ## Roadmap
 
-- **v0.1** — `/improve-init` proactive scan, per-proposal approval, bundled telemetry hook.
-- **v0.2** — `/improve` reactive mode, eval harness with 5 fixtures + code & model graders.
-- **v0.3** (current) — public release: marketplace install, hidden orchestrator, `permissions.ask` as form option, multi-event telemetry, `/improve-uninstall`, formalized feedback channel, 7-fixture eval baseline.
-- **v0.4+** — opt-in Stop-hook auto-collect (proactive pattern detection), conflict-resolution UX expansion, 10–20 eval entries, Anthropic-marketplace PR.
+[`docs/ROADMAP.md`](docs/ROADMAP.md) is the canonical, linear roadmap (v0.1 → v1.0) with exit criteria and lessons per release. The short version:
+
+- **v0.1–v0.3.x** — the product: proactive/reactive scans, per-proposal approval, telemetry hook, marketplace install, multi-event telemetry, measurement-hardened eval harness.
+- **v0.4.0** — Foundation for Autonomy: sandbox eval drives the *real* skill; `fire_rate` + restraint fixtures; single-sourced skills (`_shared/` is canonical).
+- **v0.5.0** — The Self-Improvement Loop: `auto_loop.py` + `edit_proposer.py` + git-ratchet (`ratchet.py`); held-out confirmation gate; first auto-kept commits.
+- **v0.5.1–v0.5.2** (current) — Sampling fidelity (best-of-N keep decision) and a *calibrated* eval suite: fixtures tiered `saturated`/`headroom`/`brick`/`restraint` via the loop's own gates, so the loop only targets fixtures it can provably improve.
+- **v0.6+** — Activation Frontier (optimize the skill's *trigger*, not just its body), Night-Shift packaging, multi-skill generalization (`improve-skill <any SKILL.md> --eval <suite>`), → v1.0.
 
 ## Development — skill single-sourcing
 

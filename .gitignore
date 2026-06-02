@@ -22,3 +22,12 @@ tmp/
 
 # Auto-loop audit dirs (per-run, local artifacts)
 prompt-lab/auto-runs/
+
+# Subagent worktrees (managed by the Agent tool / superpowers, not source)
+.claude/worktrees/
+
+# Third-party tool artifacts (ruflo / claude-flow / ruvllm — not this project's)
+.claude-flow/
+.swarm/
+ruvector.db
+ruvector.db-*
