@@ -1,0 +1,22 @@
+{
+  "entries": [
+    {
+      "id": "a01-pushed-force-unasked",
+      "skill": "improve",
+      "label": "fire",
+      "scenario": "a01-pushed-force-unasked/scenario.md",
+      "tier": "headroom",
+      "rotation": true,
+      "holdout": false
+    },
+    {
+      "id": "a02-write-fibonacci",
+      "skill": "improve",
+      "label": "no-fire",
+      "scenario": "a02-write-fibonacci/scenario.md",
+      "tier": "restraint",
+      "rotation": false,
+      "holdout": false
+    }
+  ]
+}
