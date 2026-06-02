@@ -225,26 +225,22 @@ Haiku-proposes-and-Haiku-grades is the highest scorer — partly the grader-bias
 
 ---
 
-### v0.6.0 — Activation Frontier (unblocked by v0.5.0)
+### v0.6.0 — Activation Frontier (shipped 2026-06-02, infrastructure)
 
-**Theme:** Self-improve the *trigger* of the skill, not just the body.
+**Theme:** Self-improve the *trigger* of the skill, not just the body — VISION.md §"Two frontiers" Frontier 1.
 
-A skill that never fires is worthless (VISION.md §"Two frontiers"). Currently `/improve` and `/improve-init` are user-triggered by typing — but the project will eventually grow model-invoked skills, and even the user-invoked ones have descriptions that affect when Claude suggests them.
+**What shipped.** A dual-axis autonomous loop. With opt-in `--activation`, one `auto_loop` run interleaves output-quality iterations (procedure edits, rubric fixtures — unchanged) and **activation iterations** (clause-level `description`-frontmatter edits), each gated on its own deterministic metric (verifier wall §8.6 — no model judge in either gate). Default (no flag) is byte-for-byte the prior output-only loop.
 
-**β findings inform v0.6 directly:**
-- The edit-proposer's bounded-edit JSON contract is **reusable** for description-frontmatter optimization — a new fixture type (trigger-accuracy positive/negative pairs) plus a new allowlist entry (`plugin/skills/<skill>/SKILL.md` frontmatter only) is the minimal lift.
-- The held-out gate **generalizes** naturally — held-out trigger-accuracy fixtures catch description edits that improve one fixture but over-fire (or under-fire) on others.
-
-Components:
-- **Trigger-accuracy fixtures** — synthetic "should this skill fire for prompt X?" pairs. Some positive ("user just saw a bug" → /improve should fire), some negative ("user asks for unrelated help" → /improve should NOT be suggested).
-- **Description-optimization in the same loop** — `evals/auto_loop.py` extended with a new edit target (frontmatter `description` field), scoring against trigger-accuracy fixtures alongside the existing rubric fixtures.
+- **Deterministic firing detection, live-validated.** A Task-0 spike proved that, given a natural scenario (no `/improve` typed), the model spontaneously invokes the skill; a `PreToolUse`/matcher-`Skill` exit-2 hook records + short-circuits it (detection + short-circuit in one). Skill names are plugin-namespaced; runs can invoke multiple skills → the hook appends and "fired" = target-among-invocations. `activation_runner.py` N-samples the firing-rate (v0.5.1 variance lesson) and survives slow/timed-out samples.
+- **New units:** `grade_activation` (firing-rate → gating `activation_score` + `false_positive_rate`), `ratchet` per-axis metric set (`ACTIVATION_METRICS`), `edit_proposer` description mode, `pick_dual_axis_target`, `run_activation_iteration`, activation calibration in `calibrate.py`.
+- **Calibrated 12-fixture suite** (opus, default effort, N=5): **perfect restraint (0% false-positive)**, 4 saturated (descriptions already fire reliably — a finding), **1 verified-closable headroom** (`a05`, reference-fix A/B passed), 1 brick (`a03`).
 
 **Exit criteria:**
-- [ ] At least 10 trigger-accuracy fixtures (5 positive, 5 negative)
-- [ ] Loop can optimize both axes (description for trigger, procedure for output) in one run
-- [ ] False-positive rate on negative fixtures stays under 10%
+- [x] ≥10 trigger-accuracy fixtures (shipped 12: 6 fire / 6 no-fire, both skills, 2 held-out)
+- [~] Loop can optimize both axes in one run — *infrastructure done* (the loop can, opt-in); *demonstrating* a kept edit on each axis is the deferred payoff
+- [x] False-positive rate < 10% (measured **0%** in calibration)
 
-*(If v0.5 went Path B, v0.6 either becomes Path A — the loop — or activation-frontier is conditional on the loop existing. Likely re-plan at v0.5 exit.)*
+**Deferred (v0.6.x candidate):** the dual-axis **validation/payoff run** (prove a run moves `activation_score` and/or `average_code`). Follow-ups: thin activation axis (author more fire fixtures); `a03` brick redesign; advance the activation held-out baseline after a keep; pin the proposer's target file path. Spec + plan: `docs/superpowers/specs/2026-06-02-activation-frontier-design.md`, `docs/superpowers/plans/2026-06-02-activation-frontier.md`.
 
 ---
 
@@ -401,7 +397,7 @@ The only invariants:
 
 ---
 
-**Last updated:** 2026-06-02, alongside the v0.5.2 tag. v0.5.2 acted on the v0.5.1 finding that the *suite* was the bottleneck: added a calibration layer (`saturated`/`headroom`/`brick` tiers via the loop's own gates), restricted rotation to headroom fixtures, authored 6 reverted-keep-grounded fixtures (2 verified-closable: `015`/`017`), and fixed a measurement bug (`_installed_ok` falsely bricked multi-rule permissions proposals like `003`). The audit found the suite *less* saturated than the noisy v0.5.1 run implied — 4 existing headroom targets the noise had masked. Headroom pool: 6 targets (`001/002/005/006/015/017`). **Deferred to a v0.6.0 candidate:** the ~$100 payoff run proving a run now moves a number; plus `014` redesign, `009` flakiness, and the `_check_rule_pattern` follow-up.
+**Last updated:** 2026-06-02, alongside the v0.6.0 tag. v0.6.0 (Activation Frontier, infrastructure) added the loop's second axis: it can now optimize the skill's `description` *trigger* alongside its procedure, in one opt-in (`--activation`) dual-axis run, each axis gated on its own deterministic metric. A live Task-0 spike validated the firing-detection mechanism (a `PreToolUse`/matcher-`Skill` exit-2 hook records + short-circuits a spontaneous skill invocation). The 12-fixture activation suite calibrated to **0% false-positive (perfect restraint)**, 4 saturated (the descriptions already trigger well — a finding), **1 verified-closable headroom** (`a05`), 1 brick (`a03`). **Deferred to a v0.6.x candidate:** the dual-axis validation/payoff run (prove a run moves `activation_score`/`average_code`); plus author more activation fire fixtures, `a03` redesign, and two activation-loop robustness follow-ups. Prior carry-overs still open: the v0.5.2 output payoff run, `014` redesign, `009` flakiness, `_check_rule_pattern`.
 
 > **Note (2026-06-02):** the original v0.6.0 "Activation Frontier" theme is unchanged in intent but now follows the eval-suite-headroom work; sequencing (headroom-payoff vs activation) is a re-spec decision at v0.6 brainstorm.
 

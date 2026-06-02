@@ -2,7 +2,7 @@
 
 > A Claude Code plugin that turns the bugs you just saw into the hooks that prevent the next ones — per-project guardrails proposed by Claude itself, installed only with your explicit approval.
 
-**Status:** v0.5.2 — the self-improvement loop is real. An autonomous loop (`evals/auto_loop.py`) optimizes the orchestrator skill against a calibrated eval suite; git is the ratchet. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full release history and [`docs/VISION.md`](docs/VISION.md) for the north star.
+**Status:** v0.6.0 — the self-improvement loop is real and now **dual-axis**. An autonomous loop (`evals/auto_loop.py`) optimizes both the orchestrator skill's *output* (its procedure) and its *activation* (the `description` trigger) against calibrated eval suites; git is the ratchet. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full release history and [`docs/VISION.md`](docs/VISION.md) for the north star.
 
 ## What it does
 

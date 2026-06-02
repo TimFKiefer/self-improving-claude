@@ -2,6 +2,57 @@
 
 All notable changes to `self-improving-claude` are documented here.
 
+## [0.6.0] — 2026-06-02 — Activation Frontier (infrastructure)
+
+Closes VISION.md's *Frontier 1*: the loop can now self-improve the skill's **trigger**
+(the `description` frontmatter), not just its body. A single `auto_loop` run (opt-in
+`--activation`) interleaves two cleanly-separable axes — output quality (procedure, rubric
+fixtures) and **activation** (description, new) — each gated on its own deterministic metric
+(verifier wall §8.6). The dual-axis **payoff run is deferred**; this release is the validated
+infrastructure (mirroring v0.5.2).
+
+### Deterministic firing detection (live-validated)
+
+A Task-0 spike against the real `claude` CLI confirmed the mechanism: given a natural
+scenario (no `/improve` typed), the model **spontaneously invokes the skill**, and a
+`PreToolUse`/matcher-`Skill` exit-2 hook **records + short-circuits** the invocation —
+detection and short-circuit in one, no model judge in the gate. Findings folded in: skill
+names are plugin-namespaced (`self-improving-claude:improve`); a run can invoke multiple
+skills, so the hook **appends** every invocation and "fired" = the target is among them.
+
+- `evals/activation_runner.py` — sandbox run + detection, **N-sampled** firing-rate (beats
+  the per-sample Bernoulli noise per the v0.5.1 variance lesson); survives a slow/timed-out
+  sample (counts as no-fire, `ACTIVATION_TIMEOUT` env-tunable).
+- `evals/grade_activation.py` — firing-rate → gating `activation_score` + `false_positive_rate`.
+- `evals/ratchet.py` — `strictly_better`/`regresses`/`confirmation_verdict` accept a per-axis
+  metric set (`ACTIVATION_METRICS`); output defaults unchanged.
+- `evals/edit_proposer.py` — clause-level `description` edit mode (preambles allowlisted).
+- `evals/auto_loop.py` — `pick_dual_axis_target` (normalized cross-axis headroom),
+  `run_activation_iteration` (mirrors `run_iteration`, activation-gated), opt-in `--activation`
+  in `main` (default OFF → existing output-only loop byte-for-byte preserved).
+- `evals/calibrate.py` — activation calibration (tiers + reference-fix A/B).
+
+### Calibrated 12-fixture activation suite
+
+Balanced 6 fire / 6 no-fire, both skills, 2 held-out, 6 reference-fix answer keys. Calibrated
+live (opus, default effort, N=5):
+
+- **Perfect restraint** — all 6 no-fire fixtures fired at 0.0 → **0% false-positive rate**
+  (the roadmap's `<10%` exit criterion already met).
+- **4 saturated** (`a01`/`a07`/`a08`/`a11` @ 1.0) — the descriptions already fire reliably on
+  clear footguns + setup/harden intent (a finding: the trigger is already strong).
+- **1 verified-closable headroom** (`a05` recurring-typecheck @ 0.6, reference-fix A/B passed)
+  — the activation axis's loop fuel.
+- **1 brick** (`a03` committed-secret @ 0.2, A/B didn't help) — quarantined for redesign.
+
+### Deferred / follow-ups
+
+- The **dual-axis validation run** (prove a run moves `activation_score` and/or `average_code`)
+  — a v0.6.x payoff candidate.
+- Thin activation axis (1 headroom) — author more borderline fire fixtures.
+- `a03` brick redesign; advance the activation held-out baseline after a keep; pin the target
+  file path in the activation proposer prompt (wasted-iteration robustness).
+
 ## [0.5.2] — 2026-06-02 — Eval suite with headroom (infrastructure)
 
 Builds the fuel the loop was missing. v0.5.1 proved the *suite* was the
