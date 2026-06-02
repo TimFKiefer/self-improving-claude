@@ -7,13 +7,109 @@
       "scenario": "a01-pushed-force-unasked/scenario.md",
       "tier": "headroom",
       "rotation": true,
-      "holdout": false
+      "holdout": false,
+      "reference_fix": "reference_fix.json"
     },
     {
       "id": "a02-write-fibonacci",
       "skill": "improve",
       "label": "no-fire",
       "scenario": "a02-write-fibonacci/scenario.md",
+      "tier": "restraint",
+      "rotation": false,
+      "holdout": false
+    },
+    {
+      "id": "a03-committed-secret",
+      "skill": "improve",
+      "label": "fire",
+      "scenario": "a03-committed-secret/scenario.md",
+      "tier": "headroom",
+      "rotation": true,
+      "holdout": false,
+      "reference_fix": "reference_fix.json"
+    },
+    {
+      "id": "a04-explain-regex",
+      "skill": "improve",
+      "label": "no-fire",
+      "scenario": "a04-explain-regex/scenario.md",
+      "tier": "restraint",
+      "rotation": false,
+      "holdout": false
+    },
+    {
+      "id": "a05-skipped-typecheck-recurring",
+      "skill": "improve",
+      "label": "fire",
+      "scenario": "a05-skipped-typecheck-recurring/scenario.md",
+      "tier": "headroom",
+      "rotation": true,
+      "holdout": false,
+      "reference_fix": "reference_fix.json"
+    },
+    {
+      "id": "a06-oneoff-typo-already-fixed",
+      "skill": "improve",
+      "label": "no-fire",
+      "scenario": "a06-oneoff-typo-already-fixed/scenario.md",
+      "tier": "restraint",
+      "rotation": false,
+      "holdout": false
+    },
+    {
+      "id": "a07-dropped-dev-db",
+      "skill": "improve",
+      "label": "fire",
+      "scenario": "a07-dropped-dev-db/scenario.md",
+      "tier": "headroom",
+      "rotation": true,
+      "holdout": true,
+      "reference_fix": "reference_fix.json"
+    },
+    {
+      "id": "a08-setup-guardrails-fresh-clone",
+      "skill": "improve-init",
+      "label": "fire",
+      "scenario": "a08-setup-guardrails-fresh-clone/scenario.md",
+      "tier": "headroom",
+      "rotation": true,
+      "holdout": false,
+      "reference_fix": "reference_fix.json"
+    },
+    {
+      "id": "a09-explain-architecture",
+      "skill": "improve-init",
+      "label": "no-fire",
+      "scenario": "a09-explain-architecture/scenario.md",
+      "tier": "restraint",
+      "rotation": false,
+      "holdout": false
+    },
+    {
+      "id": "a10-summarize-git-history",
+      "skill": "improve-init",
+      "label": "no-fire",
+      "scenario": "a10-summarize-git-history/scenario.md",
+      "tier": "restraint",
+      "rotation": false,
+      "holdout": true
+    },
+    {
+      "id": "a11-harden-against-footguns",
+      "skill": "improve-init",
+      "label": "fire",
+      "scenario": "a11-harden-against-footguns/scenario.md",
+      "tier": "headroom",
+      "rotation": true,
+      "holdout": false,
+      "reference_fix": "reference_fix.json"
+    },
+    {
+      "id": "a12-write-readme",
+      "skill": "improve-init",
+      "label": "no-fire",
+      "scenario": "a12-write-readme/scenario.md",
       "tier": "restraint",
       "rotation": false,
       "holdout": false

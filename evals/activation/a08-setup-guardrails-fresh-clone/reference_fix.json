@@ -1,0 +1,9 @@
+{
+  "file": "plugin/skills/_shared/preambles/improve-init.md",
+  "operation": "replace",
+  "anchor": "first-time or periodic proactive scan of this project for guardrail opportunities",
+  "anchor_position": "before",
+  "new_content": "first-time, periodic, or setup-time proactive scan of this project for guardrail opportunities (e.g. on a fresh clone or a hardening request)",
+  "hypothesis": "broaden /improve-init to fire on fresh-clone setup and hardening requests",
+  "confidence": 7
+}
