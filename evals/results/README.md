@@ -444,3 +444,24 @@ effort, `--confirm-reruns 2`, 20 iter, $113.91, 11.3h) from the pre-RC baseline
   rotation pick the same fixtures. **v0.6 input:** noise-robust target selection
   (multi-sample the baseline, or fix targets) is the missing piece for
   reproducible keep-sets.
+
+## Headroom suite & calibration (v0.5.2)
+
+The auto-loop only finds improvements where the orchestrator currently falls
+short. `evals/calibrate.py` classifies each fixture by the current orchestrator's
+N=5 median into `saturated`/`headroom`/`brick`/`restraint` (using the loop's own
+`is_saturated`/`strictly_better`), writes `tier`/`rotation` to `dataset.json`, and
+for new fixtures runs a withheld reference-fix A/B proving the gap is closable.
+`pick_target` rotates only over `headroom`-tier fixtures (saturated ones stay as
+regression guards).
+
+**Calibrated 18-fixture suite (opus+max, N=5):** headroom 6
+(`001/002/005/006/015/017`), saturated 7 (guards), brick 3 (`009` flaky, `014`
+mis-designed, `018` A/B-failed), restraint 2. `003` was a *false* brick —
+`_installed_ok` couldn't match multi-rule permissions proposals; the v0.5.2 fix
+un-bricked it (now a saturated guard). The headroom pool is the fuel for the
+deferred ~$100 payoff run.
+
+Run calibration:
+`python3 -m evals.calibrate --n 5 --skill-runner opus --judge opus --effort max --write`
+(`--only <id>` (re)calibrates a single fixture without disturbing the others).

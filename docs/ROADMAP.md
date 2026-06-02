@@ -401,7 +401,9 @@ The only invariants:
 
 ---
 
-**Last updated:** 2026-06-01, alongside the v0.5.1 tag. v0.5.1 added the confirmation re-run (best-of-3 before commit) and ran the deferred reproducibility check: **0% keep-set overlap** vs the RC run. The confirmation re-run works (it rejected 2 noise-keeps the single-shot loop would have kept), but reproducibility is gated by *target selection* — which still rides on a single-shot baseline (`006`/`007` scored 10.0/saturated in the rerun, never targeted). The v0.5.1 finding for v0.6: give the rotation/baseline the same noise-robustness the keep decision now has (multi-sample the baseline, or fix targets).
+**Last updated:** 2026-06-02, alongside the v0.5.2 tag. v0.5.2 acted on the v0.5.1 finding that the *suite* was the bottleneck: added a calibration layer (`saturated`/`headroom`/`brick` tiers via the loop's own gates), restricted rotation to headroom fixtures, authored 6 reverted-keep-grounded fixtures (2 verified-closable: `015`/`017`), and fixed a measurement bug (`_installed_ok` falsely bricked multi-rule permissions proposals like `003`). The audit found the suite *less* saturated than the noisy v0.5.1 run implied — 4 existing headroom targets the noise had masked. Headroom pool: 6 targets (`001/002/005/006/015/017`). **Deferred to a v0.6.0 candidate:** the ~$100 payoff run proving a run now moves a number; plus `014` redesign, `009` flakiness, and the `_check_rule_pattern` follow-up.
+
+> **Note (2026-06-02):** the original v0.6.0 "Activation Frontier" theme is unchanged in intent but now follows the eval-suite-headroom work; sequencing (headroom-payoff vs activation) is a re-spec decision at v0.6 brainstorm.
 
 **Linked artifacts:**
 - [`docs/VISION.md`](VISION.md) — what we're building toward

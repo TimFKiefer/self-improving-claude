@@ -2,6 +2,63 @@
 
 All notable changes to `self-improving-claude` are documented here.
 
+## [0.5.2] — 2026-06-02 — Eval suite with headroom (infrastructure)
+
+Builds the fuel the loop was missing. v0.5.1 proved the *suite* was the
+bottleneck (a $114 run moved nothing because the orchestrator already maxed its
+test set); v0.5.2 adds a calibration layer, a harder fixture set, and restricts
+the loop to fixtures it can actually improve. The payoff run (proving a run now
+moves a number) is **deferred** — this release is the infrastructure.
+
+### Calibration layer (`evals/calibrate.py`)
+
+Classifies each fixture by the current orchestrator's N=5 median score, reusing
+the loop's own gating functions (`is_saturated`/`strictly_better`) so
+"calibration-headroom" means exactly "loop-improvable": `saturated` (regression
+guard, never targeted) / `headroom` (the loop's fuel) / `brick` (quarantined) /
+`restraint`. New fixtures additionally pass a **reference-fix A/B** — a withheld
+bounded edit must provably lift the fixture to ceiling — proving closability and
+leaving an answer key for the deferred payoff. CLI: `python3 -m evals.calibrate`.
+
+### Headroom-only rotation
+
+`pick_target` now rotates only over `headroom`-tier fixtures; saturated ones stay
+in the full eval as regression guards but are never targeted — killing the
+saturated-skip waste that consumed ~40% of the v0.5.1 run.
+
+### Calibrated 18-fixture suite
+
+- **Audit of the 12** (N=5 median, opus+max): multi-sampling revealed the suite
+  is *less* saturated than the v0.5.1 single-shot run implied — **4 real headroom
+  targets** (`001/002/005/006`) the noise had masked, plus 4 saturated guards and
+  2 restraint.
+- **6 new fixtures** (`013–018`), each grounded in a v0.5.0 reverted-keep gap.
+  **2 of 6 verified-closable** (`015` matcher-completeness, `017` firing-precision
+  — with answer keys); `013`/`016` came back saturated (the orchestrator already
+  nails those gaps — a finding in itself); `014`/`018` bricked (below).
+
+### Measurement-integrity fix (`_installed_ok`)
+
+The install check did exact single-string membership of a proposal's `rule`
+against the written `permissions` array — so a *correct* multi-rule proposal
+(echoed as a list or newline-joined string) always scored `install_ok=False`.
+This **falsely bricked `003`** (code 10, valid install). Fixed to normalize
+`rule` to a list and require all present; `003` is now a saturated guard.
+
+### Findings carried forward
+
+- `014` is a mis-designed fixture (its path-block scenario is correctly solved by
+  `permissions.deny`, not the command-hook it demanded) — drop/redesign.
+- `009` is flaky (N=5 median 0.0 vs 8.33 single-shot) — investigate separately.
+- `_check_rule_pattern` shares the multi-rule string-only assumption (latent) — follow-up.
+- Headroom pool stands at **6 targets** (`001/002/005/006/015/017`, 2 with answer
+  keys), ready for the deferred ~$100 payoff run (the v0.6.0 candidate).
+
+### Tests
+
+Calibration pure functions + revert-safety, `pick_target` eligibility + the
+no-headroom guard, `_installed_ok` multi-rule. Suite: **272 passing.**
+
 ## [0.5.1] — 2026-06-01 — Sampling fidelity & reproducibility
 
 Pays off the two items v0.5.0 deferred: act on the sampling-fidelity lesson, and
