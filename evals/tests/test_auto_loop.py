@@ -564,3 +564,25 @@ def test_activation_saturated_at_ceiling():
     assert is_activation_saturated({"activation_score": 10.0})
     assert not is_activation_saturated({"activation_score": 8.0})
     assert is_activation_saturated({"activation_score": None})  # N/A counts as saturated
+
+
+# ----- Task 7: pick_dual_axis_target ------------------------------------------
+
+from evals.auto_loop import pick_dual_axis_target
+
+
+def test_picks_axis_with_most_headroom():
+    out = {"entries": [{"id": "001", "code_max": 9.5, "install_rate": 1.0}]}   # norm 0.975
+    act = {"entries": [{"id": "a01", "label": "fire", "correct_rate": 0.4}]}    # norm 0.40
+    axis, tid = pick_dual_axis_target(out, act, recent_picks=[],
+                                      eligible_output_ids={"001"},
+                                      eligible_activation_ids={"a01"})
+    assert (axis, tid) == ("activation", "a01")
+
+def test_avoids_recent_picks():
+    out = {"entries": [{"id": "001", "code_max": 2.0, "install_rate": 0.0}]}   # norm 0.10
+    act = {"entries": [{"id": "a01", "label": "fire", "correct_rate": 0.9}]}    # norm 0.90
+    axis, tid = pick_dual_axis_target(out, act, recent_picks=["001"],
+                                      eligible_output_ids={"001"},
+                                      eligible_activation_ids={"a01"})
+    assert (axis, tid) == ("activation", "a01")  # 001 skipped despite more headroom

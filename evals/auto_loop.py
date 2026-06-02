@@ -201,6 +201,33 @@ def pick_target(visible_baseline: dict, target_fixture: str | None,
     return fresh[0]["id"]
 
 
+def _output_headroom_norm(e: dict) -> float:
+    return ((e.get("code_max") or 0.0) / 10.0 + (e.get("install_rate") or 0.0)) / 2.0
+
+
+def pick_dual_axis_target(output_baseline: dict, activation_baseline: dict,
+                          recent_picks: list[str], *,
+                          eligible_output_ids: set[str],
+                          eligible_activation_ids: set[str]) -> tuple[str, str]:
+    """Return (axis, target_id) for the eligible fixture with the LOWEST normalized score
+    (most headroom) across both axes, avoiding the last-2 recent picks. Output norm =
+    (code_max/10 + install_rate)/2; activation norm = correct_rate. Both in [0,1]."""
+    recent = set(recent_picks[-2:])
+    cands: list[tuple[float, str, str]] = []
+    for e in output_baseline.get("entries", []):
+        if e["id"] in eligible_output_ids:
+            cands.append((_output_headroom_norm(e), "output", e["id"]))
+    for e in activation_baseline.get("entries", []):
+        if e["id"] in eligible_activation_ids:
+            cands.append((float(e.get("correct_rate") or 0.0), "activation", e["id"]))
+    if not cands:
+        raise ValueError("no eligible dual-axis targets")
+    fresh = [c for c in cands if c[2] not in recent] or cands
+    fresh.sort(key=lambda c: (c[0], c[2]))  # lowest score, stable by id
+    score, axis, tid = fresh[0]
+    return axis, tid
+
+
 def is_saturated(summary: dict) -> bool:
     """True iff all applicable gating metrics are at their ceiling.
 
