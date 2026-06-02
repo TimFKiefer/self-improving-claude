@@ -643,3 +643,21 @@ def test_activation_iteration_skips_saturated(monkeypatch):
         proposer_model="haiku", skill_model="haiku", effort=None, confirmation_reruns=0)
     assert decision.startswith("skipped: saturated")
     assert new_base == {"activation_score": 10.0, "entries": []}
+
+
+# ----- Task 9: --activation dual-axis CLI flags ----------------------------
+
+from evals.auto_loop import build_arg_parser
+
+
+def test_activation_flags_default_off():
+    p = build_arg_parser()
+    ns = p.parse_args([])
+    assert ns.activation is False
+    assert ns.activation_n == 3
+
+
+def test_activation_flag_enables():
+    p = build_arg_parser()
+    ns = p.parse_args(["--activation", "--activation-n", "5"])
+    assert ns.activation is True and ns.activation_n == 5

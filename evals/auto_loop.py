@@ -683,7 +683,7 @@ def _check_clean_tree() -> None:
         raise SystemExit(f"Refusing to start: dirty slow-state files:\n{chr(10).join(dirty)}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="evals.auto_loop",
                                      description="v0.5.0 auto-loop driver (β: held-out gate + rotation)")
     parser.add_argument("--max-iterations", type=int, default=20,
@@ -718,8 +718,21 @@ def main(argv: list[str] | None = None) -> int:
                              " Majority = n//2+1, so odd values (giving an odd total incl. the"
                              " in-iter measurement) are the intended sweet spot; an even total"
                              " demands unanimity.")
+    # v0.6.0 Activation Frontier: opt-in dual-axis (OUTPUT + ACTIVATION) loop.
+    parser.add_argument("--activation", action="store_true", default=False,
+                        help="(v0.6.0) enable the ACTIVATION axis — interleave skill-firing "
+                             "calibration iterations with the OUTPUT-quality loop. Default OFF.")
+    parser.add_argument("--activation-n", type=int, default=3,
+                        help="N samples per activation fixture (sets $ACTIVATION_N; default 3)")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_arg_parser()
     args = parser.parse_args(argv)
     effort = args.effort or os.environ.get("SANDBOX_EFFORT") or None
+    if args.activation:
+        os.environ["ACTIVATION_N"] = str(args.activation_n)
 
     _check_clean_tree()
 
@@ -778,6 +791,11 @@ def main(argv: list[str] | None = None) -> int:
           f"max-iter={args.max_iterations}{cap_str}", file=sys.stderr)
     print(f"Cost estimate: initial ${initial_cost_est:.2f} + ~${iter_cost_est:.2f}/iter",
           file=sys.stderr)
+    if args.activation:
+        from evals.activation_lib import load_activation_dataset as _lad
+        _n_act_fx = len(_lad())
+        print(f"  + activation: {args.activation_n} x {_n_act_fx} activation fixtures "
+              f"haiku decisions/iter (advisory, not gated against --max-usd)", file=sys.stderr)
     print(f"Audit dir: {audit.dir}", file=sys.stderr)
 
     proposer_client = ClaudeCliClient()
@@ -836,6 +854,25 @@ def main(argv: list[str] | None = None) -> int:
               f"install={holdout_baseline.get('install_rate')} "
               f"restraint={holdout_baseline.get('average_restraint')}", file=sys.stderr)
 
+    # v0.6.0 Activation Frontier: activation-axis eligible pool + baselines (opt-in).
+    activation_eligible: set[str] = set()
+    activation_baseline: dict | None = None
+    activation_holdout: dict | None = None
+    if args.activation:
+        from evals.activation_lib import load_activation_dataset
+        activation_eligible = {e["id"] for e in load_activation_dataset()
+                               if e.get("tier") == "headroom" and e.get("rotation", True)}
+        print("[baseline] running activation visible eval (for dual-axis picking)...",
+              file=sys.stderr)
+        activation_baseline, _ = run_activation_eval(args.skill_runner, effort, None)
+        print(f"[baseline] activation: score={activation_baseline.get('activation_score')}",
+              file=sys.stderr)
+        if holdout_gate_on:
+            print("[baseline] running activation held-out eval (for gate)...", file=sys.stderr)
+            activation_holdout, _ = run_activation_eval(args.skill_runner, effort, True)
+            print(f"[baseline] activation holdout: "
+                  f"score={activation_holdout.get('activation_score')}", file=sys.stderr)
+
     for i in range(1, args.max_iterations + 1):
         state["iteration"] = i
 
@@ -853,55 +890,89 @@ def main(argv: list[str] | None = None) -> int:
                       f"aborting after {i-1} iterations.", file=sys.stderr)
                 break
 
-        target_id = pick_target(
-            state["visible_baseline"] or {"entries": [{"id": args.target_fixture or "?",
-                                                       "code_max": 0, "install_rate": 0}]},
-            args.target_fixture,
-            state["recent_picks"], args.rotate_bottom_n,
-            eligible_ids=(None if args.target_fixture else eligible_ids),
-        )
-        print(f"\n[iter {i}/{args.max_iterations}] target={target_id} proposing edit...",
-              file=sys.stderr)
-
-        # Per-iteration target baseline = single-fixture (cheap; aligns with α)
-        if state["baseline"] is None or target_id != state.get("baseline_target"):
-            print(f"[iter {i}] running single-fixture target baseline...", file=sys.stderr)
-            target_baseline, target_result = _run_eval_and_extract_result(
-                target_id, args.skill_runner, args.judge, effort,
+        # v0.6.0: choose the axis. Default (no --activation) is always output —
+        # the else branch below is byte-for-byte the pre-v0.6.0 loop body.
+        if args.activation:
+            axis, target_id = pick_dual_axis_target(
+                state["visible_baseline"] or {"entries": []},
+                activation_baseline, state["recent_picks"],
+                eligible_output_ids=eligible_ids,
+                eligible_activation_ids=activation_eligible,
             )
-            state["baseline"] = target_baseline
-            state["last_result"] = target_result
-            state["baseline_target"] = target_id
-
-        new_baseline, new_result, new_holdout = run_iteration(
-            i=i, target_id=target_id,
-            baseline=state["baseline"], last_result=state["last_result"],
-            holdout_baseline=state["holdout_baseline"],
-            procedure=procedure, rubric=rubric, audit=audit,
-            client=proposer_client, proposer_model=args.proposer,
-            skill_model=args.skill_runner, judge_model=args.judge,
-            effort=effort,
-            dry_run=args.dry_run,
-            holdout_gate_enabled=holdout_gate_on,
-            confirmation_reruns=args.confirm_reruns,
-        )
-        state["usd_spent"] += iter_cost_est  # upper-bound accumulation
-        state["recent_picks"].append(target_id)
-        if new_baseline is not state["baseline"]:
-            state["kept"] += 1
-            state["usd_spent"] += _estimate_confirmation_cost_usd(
-                args.skill_runner, args.judge, args.confirm_reruns)
-            print(f"[iter {i}] KEPT — target {target_id} code "
-                  f"{state['baseline'].get('average_code'):.2f} → "
-                  f"{new_baseline.get('average_code'):.2f}", file=sys.stderr)
-            procedure, rubric = _read_slow_state()
-            state["holdout_baseline"] = new_holdout  # update to post-edit holdout
-            # Invalidate target baseline so next pick re-evals
-            state["baseline_target"] = None
         else:
-            print(f"[iter {i}] rejected", file=sys.stderr)
-        state["baseline"] = new_baseline
-        state["last_result"] = new_result
+            axis = "output"
+            target_id = pick_target(
+                state["visible_baseline"] or {"entries": [{"id": args.target_fixture or "?",
+                                                           "code_max": 0, "install_rate": 0}]},
+                args.target_fixture,
+                state["recent_picks"], args.rotate_bottom_n,
+                eligible_ids=(None if args.target_fixture else eligible_ids),
+            )
+
+        if axis == "activation":
+            print(f"\n[iter {i}/{args.max_iterations}] axis=activation target={target_id} "
+                  f"proposing edit...", file=sys.stderr)
+            activation_baseline, decision = run_activation_iteration(
+                i=i, target_id=target_id, baseline=activation_baseline,
+                holdout_baseline=activation_holdout, audit=audit, client=proposer_client,
+                proposer_model=args.proposer, skill_model=args.skill_runner,
+                effort=effort, confirmation_reruns=args.confirm_reruns,
+            )
+            # Same per-iteration bookkeeping the output path does for caps/recent_picks.
+            state["usd_spent"] += iter_cost_est  # upper-bound accumulation
+            state["recent_picks"].append(target_id)
+            if decision == "kept":
+                state["kept"] += 1
+                state["usd_spent"] += _estimate_confirmation_cost_usd(
+                    args.skill_runner, args.judge, args.confirm_reruns)
+                print(f"[iter {i}] KEPT (activation) — target {target_id} "
+                      f"score → {activation_baseline.get('activation_score')}", file=sys.stderr)
+                procedure, rubric = _read_slow_state()
+            else:
+                print(f"[iter {i}] {decision}", file=sys.stderr)
+        else:
+            print(f"\n[iter {i}/{args.max_iterations}] target={target_id} proposing edit...",
+                  file=sys.stderr)
+
+            # Per-iteration target baseline = single-fixture (cheap; aligns with α)
+            if state["baseline"] is None or target_id != state.get("baseline_target"):
+                print(f"[iter {i}] running single-fixture target baseline...", file=sys.stderr)
+                target_baseline, target_result = _run_eval_and_extract_result(
+                    target_id, args.skill_runner, args.judge, effort,
+                )
+                state["baseline"] = target_baseline
+                state["last_result"] = target_result
+                state["baseline_target"] = target_id
+
+            new_baseline, new_result, new_holdout = run_iteration(
+                i=i, target_id=target_id,
+                baseline=state["baseline"], last_result=state["last_result"],
+                holdout_baseline=state["holdout_baseline"],
+                procedure=procedure, rubric=rubric, audit=audit,
+                client=proposer_client, proposer_model=args.proposer,
+                skill_model=args.skill_runner, judge_model=args.judge,
+                effort=effort,
+                dry_run=args.dry_run,
+                holdout_gate_enabled=holdout_gate_on,
+                confirmation_reruns=args.confirm_reruns,
+            )
+            state["usd_spent"] += iter_cost_est  # upper-bound accumulation
+            state["recent_picks"].append(target_id)
+            if new_baseline is not state["baseline"]:
+                state["kept"] += 1
+                state["usd_spent"] += _estimate_confirmation_cost_usd(
+                    args.skill_runner, args.judge, args.confirm_reruns)
+                print(f"[iter {i}] KEPT — target {target_id} code "
+                      f"{state['baseline'].get('average_code'):.2f} → "
+                      f"{new_baseline.get('average_code'):.2f}", file=sys.stderr)
+                procedure, rubric = _read_slow_state()
+                state["holdout_baseline"] = new_holdout  # update to post-edit holdout
+                # Invalidate target baseline so next pick re-evals
+                state["baseline_target"] = None
+            else:
+                print(f"[iter {i}] rejected", file=sys.stderr)
+            state["baseline"] = new_baseline
+            state["last_result"] = new_result
 
     final_summary = state["visible_baseline"] or state["baseline"] or {}
     hours_spent = (time.monotonic() - state["start_monotonic"]) / 3600
