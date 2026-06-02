@@ -548,3 +548,19 @@ def test_pick_target_raises_when_no_eligible():
     visible_baseline = {"entries": [{"id": "a", "code_max": 3.0, "install_rate": 0.0}]}
     with pytest.raises(ValueError, match="no eligible"):
         pick_target(visible_baseline, None, eligible_ids=set())
+
+
+# ----- Task 6: activation helpers ------------------------------------------
+
+from evals.auto_loop import SLOW_STATE_ALLOWLIST as _ALLOW, is_activation_saturated
+
+
+def test_preambles_in_allowlist():
+    assert "plugin/skills/_shared/preambles/improve.md" in _ALLOW
+    assert "plugin/skills/_shared/preambles/improve-init.md" in _ALLOW
+
+
+def test_activation_saturated_at_ceiling():
+    assert is_activation_saturated({"activation_score": 10.0})
+    assert not is_activation_saturated({"activation_score": 8.0})
+    assert is_activation_saturated({"activation_score": None})  # N/A counts as saturated

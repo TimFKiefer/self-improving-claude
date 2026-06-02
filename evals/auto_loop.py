@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
 import signal
 import subprocess
 import sys
@@ -215,6 +216,24 @@ def is_saturated(summary: dict) -> bool:
             and (install is None or install >= 1.0 - EPS)
             and (fire is None or fire >= 1.0 - EPS)
             and (restraint is None or restraint >= 10.0 - EPS))
+
+
+def is_activation_saturated(summary: dict) -> bool:
+    s = summary.get("activation_score")
+    return s is None or s >= 10.0 - 0.10  # ACTIVATION_EPSILON ceiling
+
+
+def run_activation_eval(skill_model: str, effort: str | None,
+                        holdout: bool | None) -> tuple[dict, list[dict]]:
+    """Run the activation suite. holdout=None -> all fixtures; False -> visible only;
+    True -> holdout only. N comes from $ACTIVATION_N (default 3)."""
+    from evals.activation_runner import run_activation_suite
+    if holdout is None:
+        pred = None
+    else:
+        pred = (lambda e: bool(e.get("holdout")) == holdout)
+    n = int(os.environ.get("ACTIVATION_N", "3"))
+    return run_activation_suite(n=n, model=skill_model, effort=effort, filter_predicate=pred)
 
 
 def git_reset_sync_paths(repo_root: Path = REPO_ROOT) -> None:
@@ -560,7 +579,6 @@ def main(argv: list[str] | None = None) -> int:
                              " in-iter measurement) are the intended sweet spot; an even total"
                              " demands unanimity.")
     args = parser.parse_args(argv)
-    import os
     effort = args.effort or os.environ.get("SANDBOX_EFFORT") or None
 
     _check_clean_tree()
