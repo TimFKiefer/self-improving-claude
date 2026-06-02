@@ -304,9 +304,13 @@ git commit -m "feat(activation): grade_activation — firing-rate -> activation_
 
 **Files:**
 - Create: `evals/activation_runner.py`, Test: `evals/tests/test_activation_runner.py`
-- Reference: `evals/sandbox_runner.py` (`_build_argv`), Task 0 README (the marker `tool_input` shape)
+- Reference: `evals/sandbox_runner.py` (`_build_argv`), `evals/activation/_spike/README.md` (Task 0 findings)
 
-> **Replace `<<SKILL_KEY>>` below with the exact field the Task 0 spike recorded** (e.g. `"skill"` or `"name"`). The plan assumes `tool_input["skill"]`; if Task 0 found otherwise, adjust `detect_firing` and re-run its test.
+> **Task 0 resolved the detection shape (findings A & B):** the `Skill` `tool_input` field is
+> `skill`, plugin-namespaced as `self-improving-claude:improve`. A run may invoke MULTIPLE/other
+> skills (the no-fire probe invoked `superpowers:brainstorming`). So the production hook **APPENDS**
+> every invocation (JSONL, one line per call), and "fired" = the target skill `self-improving-claude:<skill>`
+> is among the recorded invocations (suffix-match `:<skill>`). Code below reflects this.
 
 - [ ] **Step 1: Write the failing test (pure parts only — detection + N-sample aggregation; mocked)**
 
@@ -314,20 +318,28 @@ git commit -m "feat(activation): grade_activation — firing-rate -> activation_
 # evals/tests/test_activation_runner.py
 import evals.activation_runner as ar
 
-def test_detect_firing_reads_marker(tmp_path):
-    marker = tmp_path / "marker.json"
-    marker.write_text('{"tool_input": {"skill": "improve"}}', encoding="utf-8")
-    assert ar.detect_firing(str(marker)) == "improve"
+def test_detect_firing_reads_appended_invocations(tmp_path):
+    marker = tmp_path / "marker.jsonl"
+    marker.write_text('{"skill": "superpowers:brainstorming"}\n'
+                      '{"skill": "self-improving-claude:improve"}\n', encoding="utf-8")
+    assert ar.detect_firing(str(marker)) == ["superpowers:brainstorming",
+                                             "self-improving-claude:improve"]
 
-def test_detect_firing_absent_marker_is_none(tmp_path):
-    assert ar.detect_firing(str(tmp_path / "nope.json")) is None
+def test_detect_firing_absent_marker_is_empty(tmp_path):
+    assert ar.detect_firing(str(tmp_path / "nope.jsonl")) == []
+
+def test_fired_target_suffix_match():
+    assert ar.fired_target(["self-improving-claude:improve"], "improve")
+    assert not ar.fired_target(["superpowers:brainstorming"], "improve")
+    assert not ar.fired_target(["self-improving-claude:improve-init"], "improve")
 
 def test_firing_rate_counts_target_skill_hits(monkeypatch):
-    calls = iter(["improve", None, "improve", "improve", "improve-init"])
-    monkeypatch.setattr(ar, "_run_once", lambda **kw: next(calls))
+    runs = iter([["self-improving-claude:improve"], [], ["superpowers:brainstorming"],
+                 ["self-improving-claude:improve"], ["self-improving-claude:improve"]])
+    monkeypatch.setattr(ar, "_run_once", lambda **kw: next(runs))
     fx = ar.ActivationFixture(id="a01", skill="improve", label="fire", scenario="...")
     rate = ar.firing_rate_for_fixture(fx, n=5, model="haiku", effort=None)
-    assert rate == 0.6  # 3 of 5 invoked "improve" (the "improve-init" hit does not count)
+    assert rate == 0.6  # 3 of 5 runs invoked the target skill
 ```
 
 - [ ] **Step 2: Run — expect ImportError.** `python3 -m pytest evals/tests/test_activation_runner.py -q`
@@ -348,17 +360,32 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_PATH = REPO_ROOT / "plugin"
 SKILL_HOOK = REPO_ROOT / "evals" / "activation" / "skill_hook.py"  # promoted from the spike
 
-def detect_firing(marker_path: str) -> str | None:
-    """Return the invoked skill name, or None if no Skill invocation was recorded."""
+def detect_firing(marker_path: str) -> list[str]:
+    """Return the skills invoked during the run (raw, plugin-namespaced), in order.
+    Empty if the marker is absent. The hook appends one JSON line per Skill call
+    (Task 0 finding B)."""
     p = Path(marker_path)
     if not p.exists():
-        return None
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    ti = data.get("tool_input") or {}
-    return ti.get("skill") or ti.get("name")  # tolerate either; Task 0 confirms which
+        return []
+    out: list[str] = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except Exception:
+            continue
+        name = rec.get("skill") or rec.get("name")
+        if name:
+            out.append(name)
+    return out
+
+def fired_target(invoked: list[str], target: str) -> bool:
+    """True if the target skill (e.g. 'improve') is among the invoked skills, matching the
+    plugin-namespaced form 'self-improving-claude:improve' (Task 0 finding A)."""
+    return any(s == f"self-improving-claude:{target}" or s.endswith(f":{target}")
+               for s in invoked)
 
 def _settings_with_skill_hook() -> dict:
     return {"hooks": {"PreToolUse": [{"matcher": "Skill", "hooks": [
@@ -402,7 +429,7 @@ def firing_rate_for_fixture(fx: ActivationFixture, *, n: int, model: str,
     runs that invoked THIS fixture's target skill."""
     hits = 0
     for _ in range(n):
-        if _run_once(scenario=fx.scenario, model=model, effort=effort) == fx.skill:
+        if fired_target(_run_once(scenario=fx.scenario, model=model, effort=effort), fx.skill):
             hits += 1
     return round(hits / n, 4)
 
@@ -420,11 +447,34 @@ def run_activation_suite(*, n: int, model: str, effort: str | None,
     return grade_activation(per_fixture), per_fixture
 ```
 
-- [ ] **Step 4: Promote the spike hook to its production home**
-```bash
-git mv evals/activation/_spike/skill_hook.py evals/activation/skill_hook.py
+- [ ] **Step 4: Write the production hook (APPENDS — Task 0 finding B)**
+
+The spike hook overwrote the marker; the production hook must append one JSON line per
+`Skill` call so multi-skill runs are captured. `evals/activation/skill_hook.py`:
+```python
+#!/usr/bin/env python3
+"""PreToolUse hook: append each `Skill` invocation to $SPIKE_MARKER (JSONL) and exit-2
+block it — detection + short-circuit in one (Task 0)."""
+import json, os, sys
+
+def main() -> int:
+    try:
+        ev = json.load(sys.stdin)
+    except Exception:
+        return 0
+    if ev.get("tool_name") != "Skill":
+        return 0
+    ti = ev.get("tool_input") or {}
+    marker = os.environ.get("SPIKE_MARKER", "/tmp/sic-act-marker.jsonl")
+    with open(marker, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"skill": ti.get("skill") or ti.get("name")}) + "\n")
+    print("activation-probe: skill invocation recorded and blocked", file=sys.stderr)
+    return 2
+
+if __name__ == "__main__":
+    sys.exit(main())
 ```
-(Keep `_spike/README.md` for provenance.)
+Keep `evals/activation/_spike/` (scenarios + README) for provenance.
 
 - [ ] **Step 5: Run pure tests — PASS. Step 6: Commit**
 ```bash
