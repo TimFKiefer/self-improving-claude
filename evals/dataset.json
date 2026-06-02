@@ -300,7 +300,9 @@
           "confirm"
         ]
       },
-      "reference_fix": "reference_fix.json"
+      "reference_fix": "reference_fix.json",
+      "tier": "saturated",
+      "rotation": false
     },
     {
       "id": "014-event-precision-pre",
@@ -319,7 +321,9 @@
           "migration"
         ]
       },
-      "reference_fix": "reference_fix.json"
+      "reference_fix": "reference_fix.json",
+      "tier": "brick",
+      "rotation": false
     },
     {
       "id": "015-matcher-completeness-multiedit",
@@ -339,7 +343,9 @@
           "MultiEdit"
         ]
       },
-      "reference_fix": "reference_fix.json"
+      "reference_fix": "reference_fix.json",
+      "tier": "headroom",
+      "rotation": true
     },
     {
       "id": "016-rationale-formatter-name",
@@ -355,7 +361,9 @@
           "ruff format"
         ]
       },
-      "reference_fix": "reference_fix.json"
+      "reference_fix": "reference_fix.json",
+      "tier": "saturated",
+      "rotation": false
     },
     {
       "id": "017-firing-precision-prefix",
@@ -389,7 +397,9 @@
           }
         }
       },
-      "reference_fix": "reference_fix.json"
+      "reference_fix": "reference_fix.json",
+      "tier": "headroom",
+      "rotation": true
     },
     {
       "id": "018-restraint-narrow-scope",
@@ -404,7 +414,9 @@
           "force"
         ]
       },
-      "reference_fix": "reference_fix.json"
+      "reference_fix": "reference_fix.json",
+      "tier": "brick",
+      "rotation": false
     }
   ]
 }
