@@ -5,6 +5,7 @@ None handling, epsilon boundaries. Per SkillOpt §8.3 (reject ties) and §8.6
 (deterministic gating only).
 """
 from evals.ratchet import strictly_better, regresses
+from evals.ratchet import ACTIVATION_METRICS, ACTIVATION_EPSILON
 
 
 def _summary(code=8.0, install=0.8, fire=0.5, restraint=0.0):
@@ -175,3 +176,19 @@ class TestConfirmationVerdict:
             [self.GAIN, self.GAIN],
             [self.H_OK, self.H_OK],
             self.BASE, self.H_BASE) is True
+
+
+def test_activation_metric_set_gates_on_activation_score():
+    old = {"activation_score": 5.0}
+    new = {"activation_score": 7.0}
+    assert strictly_better(new, old, metrics=ACTIVATION_METRICS, epsilon=ACTIVATION_EPSILON)
+    assert not regresses(new, old, metrics=ACTIVATION_METRICS, epsilon=ACTIVATION_EPSILON)
+
+
+def test_activation_regression_detected():
+    assert regresses({"activation_score": 4.0}, {"activation_score": 6.0},
+                     metrics=ACTIVATION_METRICS, epsilon=ACTIVATION_EPSILON)
+
+
+def test_output_calls_unchanged_by_default():
+    assert strictly_better({"average_code": 9.0}, {"average_code": 8.0})

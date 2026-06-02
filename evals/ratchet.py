@@ -16,6 +16,9 @@ EPSILON = {
 }
 GATING_METRICS = tuple(EPSILON.keys())
 
+ACTIVATION_EPSILON = {"activation_score": 0.10}
+ACTIVATION_METRICS = tuple(ACTIVATION_EPSILON.keys())
+
 
 def _delta(new_v, old_v) -> float | None:
     """new - old, with None treated as 'no comparable value'.
@@ -33,35 +36,36 @@ def _delta(new_v, old_v) -> float | None:
     return float(new_v) - float(old_v)
 
 
-def strictly_better(new: dict, old: dict) -> bool:
-    """True iff at least one gating metric improved by > EPSILON and
-    no gating metric regressed by > EPSILON. Ties (within-epsilon) are
+def strictly_better(new: dict, old: dict, metrics=GATING_METRICS, epsilon=EPSILON) -> bool:
+    """True iff at least one gating metric improved by > epsilon and
+    no gating metric regressed by > epsilon. Ties (within-epsilon) are
     not improvements — per SkillOpt §8.3, reject ties.
     """
     saw_improvement = False
-    for m in GATING_METRICS:
+    for m in metrics:
         d = _delta(new.get(m), old.get(m))
-        if d > EPSILON[m]:
+        if d > epsilon[m]:
             saw_improvement = True
-        elif d < -EPSILON[m]:
-            return False  # regression on some gating metric → reject
+        elif d < -epsilon[m]:
+            return False
     return saw_improvement
 
 
-def regresses(new: dict, old: dict) -> bool:
-    """True if any gating metric drops by > EPSILON. Used for the held-out
+def regresses(new: dict, old: dict, metrics=GATING_METRICS, epsilon=EPSILON) -> bool:
+    """True if any gating metric drops by > epsilon. Used for the held-out
     confirmation gate: an edit that wins on visible-9 must not regress on
     held-out-3.
     """
-    for m in GATING_METRICS:
+    for m in metrics:
         d = _delta(new.get(m), old.get(m))
-        if d < -EPSILON[m]:
+        if d < -epsilon[m]:
             return True
     return False
 
 
 def confirmation_verdict(targets: list[dict], holdouts: list[dict],
-                         baseline: dict, holdout_baseline: dict | None) -> bool:
+                         baseline: dict, holdout_baseline: dict | None,
+                         metrics=GATING_METRICS, epsilon=EPSILON) -> bool:
     """Best-of-N confirmation decision for a candidate keep (v0.5.1).
 
     Keep iff the visible gain holds in a MAJORITY of the target measurements
@@ -76,10 +80,10 @@ def confirmation_verdict(targets: list[dict], holdouts: list[dict],
     if not targets:
         return False
     majority = len(targets) // 2 + 1
-    visible_hits = sum(1 for t in targets if strictly_better(t, baseline))
+    visible_hits = sum(1 for t in targets if strictly_better(t, baseline, metrics, epsilon))
     if visible_hits < majority:
         return False
     if holdout_baseline is not None:
-        if any(regresses(h, holdout_baseline) for h in holdouts):
+        if any(regresses(h, holdout_baseline, metrics, epsilon) for h in holdouts):
             return False
     return True
