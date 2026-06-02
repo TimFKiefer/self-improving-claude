@@ -113,6 +113,66 @@
       "tier": "restraint",
       "rotation": false,
       "holdout": false
+    },
+    {
+      "id": "a13-npm-vs-pnpm-recurring",
+      "skill": "improve",
+      "label": "fire",
+      "scenario": "a13-npm-vs-pnpm-recurring/scenario.md",
+      "tier": "headroom",
+      "rotation": true,
+      "holdout": false,
+      "reference_fix": "reference_fix.json"
+    },
+    {
+      "id": "a14-edited-generated-file",
+      "skill": "improve",
+      "label": "fire",
+      "scenario": "a14-edited-generated-file/scenario.md",
+      "tier": "headroom",
+      "rotation": true,
+      "holdout": false,
+      "reference_fix": "reference_fix.json"
+    },
+    {
+      "id": "a15-ran-full-suite-not-fast",
+      "skill": "improve",
+      "label": "fire",
+      "scenario": "a15-ran-full-suite-not-fast/scenario.md",
+      "tier": "headroom",
+      "rotation": true,
+      "holdout": false,
+      "reference_fix": "reference_fix.json"
+    },
+    {
+      "id": "a16-committed-without-running-tests",
+      "skill": "improve",
+      "label": "fire",
+      "scenario": "a16-committed-without-running-tests/scenario.md",
+      "tier": "headroom",
+      "rotation": true,
+      "holdout": false,
+      "reference_fix": "reference_fix.json"
+    },
+    {
+      "id": "a17-feels-fragile-lockdown",
+      "skill": "improve-init",
+      "label": "fire",
+      "scenario": "a17-feels-fragile-lockdown/scenario.md",
+      "tier": "headroom",
+      "rotation": true,
+      "holdout": false,
+      "reference_fix": "reference_fix.json"
+    },
+    {
+      "id": "a18-new-to-repo-safety-nets",
+      "skill": "improve-init",
+      "label": "fire",
+      "scenario": "a18-new-to-repo-safety-nets/scenario.md",
+      "tier": "headroom",
+      "rotation": true,
+      "holdout": false,
+      "reference_fix": "reference_fix.json"
     }
   ]
 }

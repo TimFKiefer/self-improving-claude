@@ -1,0 +1,9 @@
+{
+  "file": "plugin/skills/_shared/preambles/improve-init.md",
+  "operation": "replace",
+  "anchor": "first-time or periodic proactive scan of this project for guardrail opportunities",
+  "anchor_position": "before",
+  "new_content": "first-time, periodic, or hunch-driven proactive scan of this project for guardrail opportunities (including vague 'is anything worth locking down?' moments)",
+  "hypothesis": "broaden /improve-init to fire on soft, hunch-driven 'should we lock something down?' moments",
+  "confidence": 7
+}

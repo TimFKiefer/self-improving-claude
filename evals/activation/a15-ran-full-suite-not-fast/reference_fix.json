@@ -1,0 +1,9 @@
+{
+  "file": "plugin/skills/_shared/preambles/improve.md",
+  "operation": "replace",
+  "anchor": "do something you don't want again",
+  "anchor_position": "before",
+  "new_content": "do something you don't want again — or repeatedly makes the same kind of mistake worth preventing",
+  "hypothesis": "broaden the /improve trigger to also catch recurring/mild mistakes, not just one-off footguns",
+  "confidence": 7
+}
