@@ -20,6 +20,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+from evals.activation_lib import load_activation_fixture
+from evals.edit_proposer import propose_description_edit
+
 SLOW_STATE_ALLOWLIST = frozenset({
     "plugin/skills/_shared/orchestrator-procedure.md",
     "plugin/skills/_shared/references/prompt-rubric.md",
@@ -549,6 +552,116 @@ def run_iteration(*, i: int, target_id: str, baseline: dict, last_result: dict,
     record["commit_sha"] = sha
     audit.write_iteration(record)
     return new_baseline, new_result, holdout_baseline
+
+
+# ---------------------------------------------------------------------------
+# Activation-axis iteration
+# ---------------------------------------------------------------------------
+
+def _read_description(preamble_path: Path) -> str:
+    for line in preamble_path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("description:"):
+            return line[len("description:"):].strip()
+    return ""
+
+
+def _activation_failure(target_id: str, baseline: dict, skill: str, description: str) -> dict:
+    missed = [e["id"] for e in baseline.get("entries", [])
+              if e.get("label") == "fire" and (e.get("correct_rate") or 0) < 1.0]
+    false_fire = [e["id"] for e in baseline.get("entries", [])
+                  if e.get("label") == "no-fire" and (e.get("correct_rate") or 1) < 1.0]
+    return {"skill": skill, "current_description": description,
+            "missed_fire": missed, "false_fire": false_fire}
+
+
+def run_activation_iteration(*, i: int, target_id: str, baseline: dict,
+                             holdout_baseline: dict | None, audit, client,
+                             proposer_model: str, skill_model: str,
+                             effort: str | None = None,
+                             confirmation_reruns: int = 2) -> tuple[dict, str]:
+    from evals.ratchet import (strictly_better, regresses, confirmation_verdict,
+                               ACTIVATION_METRICS, ACTIVATION_EPSILON)
+    rec = {"i": i, "ts": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+           "axis": "activation", "fixture": target_id}
+
+    if is_activation_saturated(baseline):
+        rec["decision"] = "skipped: saturated_baseline"
+        audit.write_iteration(rec)
+        return baseline, rec["decision"]
+
+    skill = load_activation_fixture(target_id).skill
+    description = _read_description(REPO_ROOT / f"plugin/skills/_shared/preambles/{skill}.md")
+
+    try:
+        proposal = propose_description_edit(
+            activation_failure=_activation_failure(target_id, baseline, skill, description),
+            history=audit.last_n_rejected_edits(5), client=client, model=proposer_model)
+    except Exception as ex:
+        rec["decision"] = f"rejected: invalid_edit ({ex})"
+        audit.write_iteration(rec)
+        return baseline, rec["decision"]
+    if proposal is None:
+        rec["decision"] = "rejected: low_confidence"
+        audit.write_iteration(rec)
+        return baseline, rec["decision"]
+    rec["edit"] = proposal.to_edit_dict()
+    rec["hypothesis"] = proposal.hypothesis
+
+    ok, reason = apply_edit(proposal.to_edit_dict())
+    if not ok:
+        rec["decision"] = f"rejected: invalid_edit ({reason})"
+        audit.write_iteration(rec)
+        return baseline, rec["decision"]
+    ok, reason = run_sync_skills()
+    if not ok:
+        git_reset_sync_paths()
+        rec["decision"] = f"rejected: sync_failed ({reason})"
+        audit.write_iteration(rec)
+        return baseline, rec["decision"]
+
+    try:
+        new_base, _ = run_activation_eval(skill_model, effort, False)
+    except Exception as ex:
+        git_reset_sync_paths()
+        rec["decision"] = f"rejected: eval_failed ({ex})"
+        audit.write_iteration(rec)
+        return baseline, rec["decision"]
+    rec["scores_before"] = baseline
+    rec["scores_after"] = new_base
+
+    if not strictly_better(new_base, baseline, ACTIVATION_METRICS, ACTIVATION_EPSILON):
+        git_reset_sync_paths()
+        rec["decision"] = "rejected: no_visible_gain"
+        audit.write_iteration(rec)
+        return baseline, rec["decision"]
+
+    targets, holdouts = [new_base], []
+    if holdout_baseline is not None:
+        new_hold, _ = run_activation_eval(skill_model, effort, True)
+        if regresses(new_hold, holdout_baseline, ACTIVATION_METRICS, ACTIVATION_EPSILON):
+            git_reset_sync_paths()
+            rec["decision"] = "rejected: holdout_regression"
+            audit.write_iteration(rec)
+            return baseline, rec["decision"]
+        holdouts.append(new_hold)
+    for _ in range(confirmation_reruns):
+        t, _ = run_activation_eval(skill_model, effort, False)
+        targets.append(t)
+        if holdout_baseline is not None:
+            h, _ = run_activation_eval(skill_model, effort, True)
+            holdouts.append(h)
+    if not confirmation_verdict(targets, holdouts, baseline, holdout_baseline,
+                                ACTIVATION_METRICS, ACTIVATION_EPSILON):
+        git_reset_sync_paths()
+        rec["decision"] = "rejected: confirmation_failed"
+        audit.write_iteration(rec)
+        return baseline, rec["decision"]
+
+    sha = git_commit_iteration(f"auto-loop[i={i}][activation]: {proposal.hypothesis[:70]}")
+    rec["decision"] = "kept"
+    rec["commit_sha"] = sha
+    audit.write_iteration(rec)
+    return new_base, "kept"
 
 
 # ---------------------------------------------------------------------------

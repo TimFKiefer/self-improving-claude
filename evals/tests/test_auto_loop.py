@@ -586,3 +586,60 @@ def test_avoids_recent_picks():
                                       eligible_output_ids={"001"},
                                       eligible_activation_ids={"a01"})
     assert (axis, tid) == ("activation", "a01")  # 001 skipped despite more headroom
+
+
+# ----- Task 8: run_activation_iteration ------------------------------------
+
+import evals.auto_loop as al
+from evals.edit_proposer import EditProposal
+from evals.activation_lib import ActivationFixture
+
+class _StubAudit:
+    def last_n_rejected_edits(self, n): return []
+    def write_iteration(self, rec): self.last = rec
+
+def _act_prop():
+    return EditProposal(file="plugin/skills/_shared/preambles/improve.md",
+                        operation="replace", anchor="X", anchor_position="before",
+                        new_content="Y", hypothesis="h", confidence=8)
+
+def _patch_act_common(monkeypatch):
+    monkeypatch.setattr(al, "load_activation_fixture",
+                        lambda tid: ActivationFixture(id=tid, skill="improve",
+                                                      label="fire", scenario="..."))
+    monkeypatch.setattr(al, "_read_description", lambda p: "current desc with X")
+    monkeypatch.setattr(al, "propose_description_edit", lambda **kw: _act_prop())
+    monkeypatch.setattr(al, "apply_edit", lambda *a, **k: (True, "applied"))
+    monkeypatch.setattr(al, "run_sync_skills", lambda *a, **k: (True, "ok"))
+    monkeypatch.setattr(al, "git_reset_sync_paths", lambda *a, **k: None)
+
+def test_activation_iteration_reverts_on_no_gain(monkeypatch):
+    _patch_act_common(monkeypatch)
+    monkeypatch.setattr(al, "run_activation_eval",
+                        lambda *a, **k: ({"activation_score": 5.0, "entries": []}, []))
+    new_base, decision = al.run_activation_iteration(
+        i=1, target_id="a01", baseline={"activation_score": 5.0, "entries": []},
+        holdout_baseline=None, audit=_StubAudit(), client=object(),
+        proposer_model="haiku", skill_model="haiku", effort=None, confirmation_reruns=0)
+    assert decision.startswith("rejected: no_visible_gain")
+    assert new_base == {"activation_score": 5.0, "entries": []}
+
+def test_activation_iteration_keeps_on_confirmed_gain(monkeypatch):
+    _patch_act_common(monkeypatch)
+    monkeypatch.setattr(al, "run_activation_eval",
+                        lambda *a, **k: ({"activation_score": 8.0, "entries": []}, []))
+    monkeypatch.setattr(al, "git_commit_iteration", lambda msg: "abc123")
+    new_base, decision = al.run_activation_iteration(
+        i=1, target_id="a01", baseline={"activation_score": 5.0, "entries": []},
+        holdout_baseline=None, audit=_StubAudit(), client=object(),
+        proposer_model="haiku", skill_model="haiku", effort=None, confirmation_reruns=0)
+    assert decision == "kept"
+    assert new_base["activation_score"] == 8.0
+
+def test_activation_iteration_skips_saturated(monkeypatch):
+    new_base, decision = al.run_activation_iteration(
+        i=1, target_id="a01", baseline={"activation_score": 10.0, "entries": []},
+        holdout_baseline=None, audit=_StubAudit(), client=object(),
+        proposer_model="haiku", skill_model="haiku", effort=None, confirmation_reruns=0)
+    assert decision.startswith("skipped: saturated")
+    assert new_base == {"activation_score": 10.0, "entries": []}
