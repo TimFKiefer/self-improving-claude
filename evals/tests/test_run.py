@@ -225,6 +225,38 @@ def test_dataset_has_three_holdout_entries():
     assert any("block-env-reads" in i for i in hold_ids), "holdout needs a shape-only fixture"
 
 
+def test_installed_ok_accepts_multi_rule_list():
+    proposal = {"form": "permissions.deny",
+                "rule": ["Edit(src/generated/**)", "Write(src/generated/**)"]}
+    written = {"settings_parses": True,
+               "permission_rules": ["Edit(src/generated/**)", "Write(src/generated/**)", "MultiEdit(x)"]}
+    assert _installed_ok(proposal, written) is True
+
+
+def test_installed_ok_accepts_multi_rule_joined_string():
+    proposal = {"form": "permissions.deny", "rule": "Edit(a)\nWrite(b)"}
+    written = {"settings_parses": True, "permission_rules": ["Edit(a)", "Write(b)"]}
+    assert _installed_ok(proposal, written) is True
+
+
+def test_installed_ok_multi_rule_missing_one_is_false():
+    proposal = {"form": "permissions.deny", "rule": ["Edit(a)", "Write(b)"]}
+    written = {"settings_parses": True, "permission_rules": ["Edit(a)"]}  # Write(b) missing
+    assert _installed_ok(proposal, written) is False
+
+
+def test_installed_ok_single_rule_string_still_works():
+    proposal = {"form": "permissions.ask", "rule": "Bash(git push:*)"}
+    written = {"settings_parses": True, "permission_rules": ["Bash(git push:*)"]}
+    assert _installed_ok(proposal, written) is True
+
+
+def test_installed_ok_empty_rule_is_false():
+    proposal = {"form": "permissions.deny", "rule": ""}
+    written = {"settings_parses": True, "permission_rules": []}
+    assert _installed_ok(proposal, written) is False
+
+
 def test_aggregate_sandbox_handles_empty_results():
     """Empty input (e.g. --holdout-only with no holdout matches) returns all-None summary."""
     agg = _aggregate_sandbox([])

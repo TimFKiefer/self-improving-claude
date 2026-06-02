@@ -232,7 +232,13 @@ def _installed_ok(proposal: dict, written: dict) -> bool | None:
     if not written.get("settings_parses"):
         return False
     if form in ("permissions.deny", "permissions.ask"):
-        return (proposal.get("rule") or "") in (written.get("permission_rules") or [])
+        raw = proposal.get("rule")
+        if isinstance(raw, list):
+            rules = [str(r).strip() for r in raw if str(r).strip()]
+        else:
+            rules = [r.strip() for r in (raw or "").split("\n") if r.strip()]
+        pr = written.get("permission_rules") or []
+        return bool(rules) and all(r in pr for r in rules)
     if form == "command-hook":
         slug = (proposal.get("sentinel_name") or "").split("/")[-1]
         file_ok = bool(slug) and any(slug in hf for hf in written.get("hook_files", []))
