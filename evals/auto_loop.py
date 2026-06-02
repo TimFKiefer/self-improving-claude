@@ -864,7 +864,9 @@ def main(argv: list[str] | None = None) -> int:
                                if e.get("tier") == "headroom" and e.get("rotation", True)}
         print("[baseline] running activation visible eval (for dual-axis picking)...",
               file=sys.stderr)
-        activation_baseline, _ = run_activation_eval(args.skill_runner, effort, None)
+        # visible-only (False): the per-iteration ratchet compares a visible-only candidate,
+        # so the seed baseline must use the same denominator (holdouts are gated separately).
+        activation_baseline, _ = run_activation_eval(args.skill_runner, effort, False)
         print(f"[baseline] activation: score={activation_baseline.get('activation_score')}",
               file=sys.stderr)
         if holdout_gate_on:

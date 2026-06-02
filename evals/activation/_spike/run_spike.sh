@@ -3,7 +3,7 @@
 # and can a PreToolUse/matcher-Skill hook detect + short-circuit it?
 # Usage: bash run_spike.sh fire|nofire
 set -u
-REPO="~/Desktop/Projects/self-improving-claude"
+REPO="$(cd "$(dirname "$0")/../../.." && pwd)"   # repo root, derived from this script's location
 SCN="${1:?usage: run_spike.sh fire|nofire}"
 HOOK="$REPO/evals/activation/_spike/skill_hook.py"
 PROMPT="$(cat "$REPO/evals/activation/_spike/scenario_${SCN}.md")"
