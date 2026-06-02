@@ -65,6 +65,10 @@ def classify_tier(median_sum: dict, *, expect_no_proposal: bool = False,
 # Imported at module scope so monkeypatch can replace them on evals.calibrate.
 from evals.auto_loop import (apply_edit, run_sync_skills, git_reset_sync_paths,
                              _run_eval_and_extract_result)
+from evals.activation_runner import firing_rate_for_fixture
+from evals.activation_lib import (load_activation_dataset, load_activation_fixture,
+                                  ACTIVATION_DIR)
+from evals.grade_activation import grade_activation
 
 EVALS_DIR = Path(__file__).resolve().parent
 
@@ -156,6 +160,96 @@ def _write_tiers(entries: list[dict], results: list[dict]) -> None:
         json.dumps({"entries": entries}, indent=2) + "\n", encoding="utf-8")
 
 
+# ── Activation calibration ────────────────────────────────────────────────────
+
+ACTIVATION_CEILING = 10.0 - 0.10   # mirrors ratchet.ACTIVATION_EPSILON
+ACTIVATION_HEADROOM_FLOOR = 5.0
+
+
+def classify_activation_tier(median_sum: dict, *, expect_no_proposal: bool,
+                              ab_passed: bool | None) -> str:
+    if expect_no_proposal:
+        return "restraint"
+    score = median_sum.get("activation_score")
+    if score is not None and score >= ACTIVATION_CEILING:
+        return "saturated"
+    if ab_passed is True:
+        return "headroom"
+    if ab_passed is False:
+        return "brick"
+    return "headroom" if (score or 0.0) >= ACTIVATION_HEADROOM_FLOOR else "brick"
+
+
+def _activation_ab_passed(label: str, base_rate: float, fixed_rate: float) -> bool:
+    base_correct = base_rate if label == "fire" else 1.0 - base_rate
+    fixed_correct = fixed_rate if label == "fire" else 1.0 - fixed_rate
+    return fixed_correct > base_correct + 0.10   # ACTIVATION_EPSILON improvement
+
+
+def _load_activation_reference_fix(entry: dict) -> dict | None:
+    if not entry.get("reference_fix"):
+        return None
+    path = ACTIVATION_DIR / entry["id"] / "reference_fix.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def run_activation_reference_fix_ab(entry: dict, reference_fix: dict, *, base_rate: float,
+                                    n: int, skill_model: str, effort: str | None):
+    """Apply the answer-key description edit, re-measure firing, ALWAYS revert.
+    Returns (fixed_rate, note) or (None, reason)."""
+    fx = load_activation_fixture(entry["id"])
+    try:
+        ok, reason = apply_edit(reference_fix)
+        if not ok:
+            return None, f"apply_failed: {reason}"
+        ok, reason = run_sync_skills()
+        if not ok:
+            return None, f"sync_failed: {reason}"
+        fixed_rate = firing_rate_for_fixture(fx, n=n, model=skill_model, effort=effort)
+        return fixed_rate, "ok"
+    finally:
+        git_reset_sync_paths()
+
+
+def calibrate_activation_all(*, n: int, skill_model: str, effort: str | None,
+                             only: str | None, write: bool) -> list[dict]:
+    all_entries = load_activation_dataset()
+    target_entries = [e for e in all_entries if (only is None or e["id"] == only)]
+    results = []
+    for e in target_entries:
+        fx = load_activation_fixture(e["id"])
+        rate = firing_rate_for_fixture(fx, n=n, model=skill_model, effort=effort)
+        median_sum = grade_activation([{"id": fx.id, "skill": fx.skill,
+                                        "label": fx.label, "firing_rate": rate}])
+        expect_no = (fx.label == "no-fire")
+        prelim = classify_activation_tier(median_sum, expect_no_proposal=expect_no, ab_passed=None)
+        ab_passed = None
+        ref = _load_activation_reference_fix(e)
+        if ref is not None and prelim not in ("saturated", "restraint"):
+            fixed_rate, _note = run_activation_reference_fix_ab(
+                e, ref, base_rate=rate, n=n, skill_model=skill_model, effort=effort)
+            if fixed_rate is not None:
+                ab_passed = _activation_ab_passed(fx.label, rate, fixed_rate)
+        tier = classify_activation_tier(median_sum, expect_no_proposal=expect_no, ab_passed=ab_passed)
+        results.append({"id": e["id"], "tier": tier, "ab_passed": ab_passed,
+                        "firing_rate": rate, "activation_score": median_sum["activation_score"]})
+    if write:
+        _write_activation_tiers(all_entries, results)
+    return results
+
+
+def _write_activation_tiers(entries: list[dict], results: list[dict]) -> None:
+    by_id = {r["id"]: r for r in results}
+    for e in entries:
+        if e["id"] in by_id:
+            e["tier"] = by_id[e["id"]]["tier"]
+            e["rotation"] = (by_id[e["id"]]["tier"] == "headroom")
+    (ACTIVATION_DIR / "dataset.json").write_text(
+        json.dumps({"entries": entries}, indent=2) + "\n", encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="evals.calibrate")
     p.add_argument("--n", type=int, default=5)
@@ -164,7 +258,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--effort", default="max")
     p.add_argument("--only", default=None, help="calibrate a single fixture id")
     p.add_argument("--write", action="store_true", help="write tier/rotation back to dataset.json")
+    p.add_argument("--activation", action="store_true",
+                   help="calibrate activation fixtures instead of output fixtures")
     args = p.parse_args(argv)
+    if args.activation:
+        results = calibrate_activation_all(n=args.n, skill_model=args.skill_runner,
+                                           effort=args.effort, only=args.only, write=args.write)
+        for r in results:
+            print(f"{r['id']}  tier={r['tier']}  firing_rate={r['firing_rate']}")
+        return 0
     results = calibrate_all(n=args.n, skill_model=args.skill_runner, judge_model=args.judge,
                             effort=args.effort, only=args.only, write=args.write)
     print(json.dumps(results, indent=2))

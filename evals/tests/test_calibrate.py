@@ -93,3 +93,48 @@ def test_median_summary_empty_list_all_none():
     from evals.calibrate import median_summary
     out = median_summary([])
     assert out["average_code"] is None and out["install_rate"] is None
+
+
+# ── Activation-calibration tests ──────────────────────────────────────────────
+from evals.calibrate import classify_activation_tier
+
+def test_classify_activation_tier_saturated():
+    assert classify_activation_tier({"activation_score": 10.0}, expect_no_proposal=False,
+                                    ab_passed=None) == "saturated"
+
+def test_classify_activation_tier_headroom_when_ab_passes():
+    assert classify_activation_tier({"activation_score": 6.0}, expect_no_proposal=False,
+                                    ab_passed=True) == "headroom"
+
+def test_classify_activation_tier_restraint_for_no_fire():
+    assert classify_activation_tier({"activation_score": 9.0}, expect_no_proposal=True,
+                                    ab_passed=None) == "restraint"
+
+def test_calibrate_activation_all_saturated_and_restraint(monkeypatch):
+    import evals.calibrate as cal
+    monkeypatch.setattr(cal, "firing_rate_for_fixture",
+                        lambda fx, **k: 1.0 if fx.label == "fire" else 0.0)
+    captured = {}
+    monkeypatch.setattr(cal, "_write_activation_tiers",
+                        lambda entries, results: captured.update(results={r["id"]: r["tier"] for r in results}))
+    results = cal.calibrate_activation_all(n=1, skill_model="haiku", effort=None,
+                                           only=None, write=True)
+    by = {r["id"]: r["tier"] for r in results}
+    assert by["a01-pushed-force-unasked"] == "saturated"   # fire fires perfectly -> saturated
+    assert by["a02-write-fibonacci"] == "restraint"        # no-fire fixture
+
+def test_calibrate_activation_ab_promotes_to_headroom(monkeypatch):
+    import evals.calibrate as cal
+    from evals.activation_lib import ActivationFixture
+    monkeypatch.setattr(cal, "load_activation_dataset",
+                        lambda: [{"id": "x", "skill": "improve", "label": "fire",
+                                  "scenario": "x/s.md", "reference_fix": "reference_fix.json"}])
+    monkeypatch.setattr(cal, "load_activation_fixture",
+                        lambda tid: ActivationFixture(id="x", skill="improve", label="fire", scenario="..."))
+    monkeypatch.setattr(cal, "firing_rate_for_fixture", lambda fx, **k: 0.4)   # base under ceiling
+    monkeypatch.setattr(cal, "_load_activation_reference_fix", lambda e: {"file": "f", "operation": "replace"})
+    monkeypatch.setattr(cal, "run_activation_reference_fix_ab", lambda e, ref, **k: (0.9, "ok"))
+    results = cal.calibrate_activation_all(n=1, skill_model="haiku", effort=None,
+                                           only=None, write=False)
+    assert results[0]["tier"] == "headroom"
+    assert results[0]["ab_passed"] is True
