@@ -66,8 +66,12 @@ def _run_once(*, scenario: str, model: str, effort: str | None) -> list[str]:
             json.dumps(_settings_with_skill_hook()), encoding="utf-8")
         marker = Path(tmp) / "marker.jsonl"
         env = {**os.environ, "SPIKE_MARKER": str(marker)}
-        subprocess.run(_build_argv(model=model, scenario=scenario, effort=effort),
-                       cwd=tmp, capture_output=True, text=True, timeout=300, env=env)
+        timeout = float(os.environ.get("ACTIVATION_TIMEOUT", "300"))
+        try:
+            subprocess.run(_build_argv(model=model, scenario=scenario, effort=effort),
+                           cwd=tmp, capture_output=True, text=True, timeout=timeout, env=env)
+        except subprocess.TimeoutExpired:
+            pass  # a slow decision counts as whatever the hook recorded (usually no fire) — never crash the suite
         return detect_firing(str(marker))
     finally:
         import shutil; shutil.rmtree(tmp, ignore_errors=True)

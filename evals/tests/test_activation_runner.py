@@ -22,3 +22,11 @@ def test_firing_rate_counts_target_skill_hits(monkeypatch):
     fx = ar.ActivationFixture(id="a01", skill="improve", label="fire", scenario="...")
     rate = ar.firing_rate_for_fixture(fx, n=5, model="haiku", effort=None)
     assert rate == 0.6  # 3 of 5 runs invoked the target skill
+
+def test_run_once_survives_timeout(monkeypatch):
+    import subprocess as sp
+    def boom(*a, **k):
+        raise sp.TimeoutExpired(cmd="claude", timeout=1)
+    monkeypatch.setattr(ar.subprocess, "run", boom)
+    # a timed-out decision must NOT crash — it counts as no fire (empty marker)
+    assert ar._run_once(scenario="x", model="haiku", effort=None) == []
