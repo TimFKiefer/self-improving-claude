@@ -23,6 +23,8 @@ SLOW_STATE_ALLOWLIST = frozenset({
     "plugin/skills/_shared/orchestrator-procedure.md",
     "plugin/skills/_shared/references/prompt-rubric.md",
     "plugin/skills/_shared/references/examples.md",
+    "plugin/skills/_shared/preambles/improve.md",
+    "plugin/skills/_shared/preambles/improve-init.md",
 })
 
 # Paths affected by sync_skills.py — both _shared/ source and generated trees.

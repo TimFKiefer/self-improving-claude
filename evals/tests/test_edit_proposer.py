@@ -203,3 +203,40 @@ def test_allowed_files_match_apply_edit_allowlist():
     """Cross-check that proposer allowlist == apply_edit allowlist."""
     from evals.auto_loop import SLOW_STATE_ALLOWLIST
     assert set(ALLOWED_FILES) == SLOW_STATE_ALLOWLIST
+
+
+from evals.edit_proposer import parse_proposer_response, ALLOWED_FILES, propose_description_edit
+
+def test_preambles_are_allowed_files():
+    assert "plugin/skills/_shared/preambles/improve.md" in ALLOWED_FILES
+    assert "plugin/skills/_shared/preambles/improve-init.md" in ALLOWED_FILES
+
+def test_parse_accepts_description_replace_on_preamble():
+    raw = '''{"file":"plugin/skills/_shared/preambles/improve.md",
+      "operation":"replace","anchor":"right after seeing Claude",
+      "anchor_position":"before",
+      "new_content":"the moment you notice Claude do something you want prevented",
+      "hypothesis":"sharpen the fire trigger","confidence":7}'''
+    p = parse_proposer_response(raw)
+    assert p.file.endswith("preambles/improve.md")
+    assert p.operation == "replace"
+
+class _FakeResp:
+    def __init__(self, text): self.content = [type("C", (), {"text": text})]
+class _FakeClient:
+    def __init__(self, text): self._t = text
+    class _M:
+        def __init__(self, t): self._t = t
+        def create(self, **kw): return _FakeResp(self._t)
+    @property
+    def messages(self): return _FakeClient._M(self._t)
+
+def test_propose_description_edit_returns_proposal():
+    raw = '{"file":"plugin/skills/_shared/preambles/improve.md","operation":"replace",' \
+          '"anchor":"X","anchor_position":"before","new_content":"Y",' \
+          '"hypothesis":"h","confidence":8}'
+    p = propose_description_edit(
+        activation_failure={"skill": "improve", "current_description": "...X...",
+                            "missed_fire": ["a01"], "false_fire": []},
+        history=[], client=_FakeClient(raw), model="haiku")
+    assert p is not None and p.operation == "replace"

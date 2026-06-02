@@ -21,6 +21,8 @@ ALLOWED_FILES = (
     "plugin/skills/_shared/orchestrator-procedure.md",
     "plugin/skills/_shared/references/prompt-rubric.md",
     "plugin/skills/_shared/references/examples.md",
+    "plugin/skills/_shared/preambles/improve.md",
+    "plugin/skills/_shared/preambles/improve-init.md",
 )
 LOW_CONFIDENCE_THRESHOLD = 4
 
@@ -185,6 +187,35 @@ def parse_proposer_response(raw: str) -> EditProposal:
         hypothesis=data["hypothesis"],
         confidence=data["confidence"],
     )
+
+
+def assemble_activation_proposer_prompt(*, activation_failure: dict, history: list[dict]) -> str:
+    skill = activation_failure["skill"]
+    return (
+        "You tune the `description:` frontmatter of a Claude Code skill so the model "
+        "invokes it at exactly the right moment and never otherwise.\n\n"
+        f"<skill>{skill}</skill>\n"
+        f"<current_description>{activation_failure['current_description']}</current_description>\n"
+        f"<missed_fire_scenarios>{activation_failure.get('missed_fire', [])}</missed_fire_scenarios>\n"
+        f"<false_fire_scenarios>{activation_failure.get('false_fire', [])}</false_fire_scenarios>\n"
+        f"<recent_attempts>{_format_history(history)}</recent_attempts>\n\n"
+        "Propose ONE bounded clause-level edit to the description (operation=replace, "
+        "anchor=a unique substring of the current description, new_content=the rewritten "
+        "clause). Do NOT rewrite the whole description. Output ONLY JSON with keys: "
+        "file, operation, anchor, anchor_position, new_content, hypothesis, confidence."
+    )
+
+
+def propose_description_edit(*, activation_failure: dict, history: list[dict],
+                             client, model: str) -> Optional[EditProposal]:
+    prompt = assemble_activation_proposer_prompt(
+        activation_failure=activation_failure, history=history)
+    resp = client.messages.create(
+        model=model, max_tokens=2048, messages=[{"role": "user", "content": prompt}])
+    proposal = parse_proposer_response(resp.content[0].text)
+    if proposal.confidence < LOW_CONFIDENCE_THRESHOLD:
+        return None
+    return proposal
 
 
 def propose_edit(*, fixture_failure: dict, procedure: str, rubric: str,
