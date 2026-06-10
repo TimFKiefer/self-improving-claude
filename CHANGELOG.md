@@ -2,6 +2,33 @@
 
 All notable changes to `self-improving-claude` are documented here.
 
+## [0.6.1] — 2026-06-10 — Loop-safety (recursion guards in the orchestrator prompting)
+
+Pre-publication hardening: generated hooks must now *terminate*. The orchestrator's first
+act when drafting any Pre/PostToolUse hook is a recursion trace — does the corrective action
+the hook demands re-fire the hook itself? Closes the gap where rubric criterion 12's
+imperative stderr ("Do not stop until done") could turn a non-convergent check into an
+infinite feedback loop.
+
+- `docs/knowledge/hooks-and-sdk.md` — new §10 "Recursion and feedback loops": the four loop
+  shapes (PostToolUse echo, PreToolUse retry, sub-agent fork bomb, Stop continuation) and
+  their guards, including baseline-delta convergence (fail only on NEW violations vs. a
+  recorded baseline) and a per-session fire-count circuit breaker; old §10 (implications)
+  renumbered to §11 and extended with a loop-safety bullet.
+- `prompt-rubric.md` — new criterion 14 (**Loop-safe — terminates**): per-shape termination
+  requirements; ties criterion 12 to convergence (imperative stderr is only shippable on a
+  convergent check); failing the trace is a drop, not a retry.
+- `hook-patterns.md` — new "Recursion guards (loop-safety)" runtime section: loop-shape →
+  guard table plus the two-question draft check.
+- `orchestrator-procedure.md` — Step 5: the loop check is the FIRST drafting act for any
+  hook; Step 7: third trace envelope (**follow-up**) — the corrective action the stderr
+  demands must reach `return 0`.
+- `examples.md` — Example 4 now demonstrates its own loop trace (condition-gated
+  convergence) and names the unshippable non-convergent variant.
+
+Slow-state change shipped outside the eval loop (pre-publish request); a confirmation
+benchmark run is recommended before tagging a release.
+
 ## [0.6.0] — 2026-06-02 — Activation Frontier (infrastructure)
 
 Closes VISION.md's *Frontier 1*: the loop can now self-improve the skill's **trigger**

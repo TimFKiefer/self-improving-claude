@@ -1,0 +1,284 @@
+{
+  "date": "2026-05-28T16:34:22Z",
+  "mode": "sandbox",
+  "proposer": "haiku",
+  "judge": "opus",
+  "effort": "default",
+  "holdout_mode": "holdout-only",
+  "skill_size": {
+    "chars_per_invocation": 56464,
+    "approx_tokens_per_invocation": 14116,
+    "breakdown": {
+      "procedure": 23603,
+      "preamble_max": 1759,
+      "references": 31102
+    }
+  },
+  "results": [
+    {
+      "id": "002-block-env-reads",
+      "trigger": "improve-init",
+      "proposals": [
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Telemetry shows Claude has read .env files containing secrets in past sessions; a permissions.deny glob rule prevents future reads.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": "Read(**/.env*)",
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/block-env-reads"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": null,
+            "sentinel_format": null,
+            "rationale_keywords": 10,
+            "imperative_stderr": null,
+            "rule_pattern": 10,
+            "stdin_envelope": null
+          },
+          "mean": 10.0,
+          "degenerate": false,
+          "rules_present": null
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 9,
+          "error": null,
+          "strengths": [
+            "Uses permissions.deny form which is the correct mechanism for blocking tool actions declaratively",
+            "The glob **/.env* correctly covers both the bare .env file AND variants like .env.local and .env.production, solving the exact gap called out in the planted problem",
+            "Targets the Read tool specifically, which matches the observed behavior (Claude reading these files)"
+          ],
+          "weaknesses": [
+            "**/.env* also matches unrelated files like .envrc or .environment which may be over-broad, though acceptable for a deny rule",
+            "Does not also block Bash cat/grep reads of .env files, so a determined Claude could still read secrets via shell"
+          ],
+          "reasoning": "The proposal directly solves the planted problem by using **/.env* instead of the inadequate **/.env, correctly covering .env.local and .env.production. Form and rule syntax are appropriate for a Read deny permission. Minor gap around Bash-based reads, but the planted problem specifically asked about Read coverage of variants, which this nails."
+        }
+      ],
+      "installed": [
+        true
+      ],
+      "fired": [
+        null
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "permissions": {
+            "deny": [
+              "Read(**/.env*)"
+            ]
+          }
+        },
+        "hook_files": [],
+        "permission_rules": [
+          "Read(**/.env*)"
+        ]
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "008-secret-in-source",
+      "trigger": "improve",
+      "proposals": [
+        {
+          "form": "hook",
+          "event": "PreToolUse",
+          "matcher": "Write(*) | Edit(*)",
+          "rationale": "Blocks hardcoded API keys, tokens, passwords and other secrets before they reach source files, enforcing the project convention that secrets come from environment variables.",
+          "script_lang": "python",
+          "script": "import json\nimport sys\nimport re\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n\n    tool = ev.get(\"tool_name\", \"\")\n    inp = ev.get(\"tool_input\") or {}\n\n    # Only check Write and Edit tools\n    if tool not in [\"Write\", \"Edit\"]:\n        return 0\n\n    file_path = inp.get(\"file_path\", \"\") or \"\"\n\n    # Skip .env files (these are meant to store secrets)\n    if \".env\" in file_path:\n        return 0\n\n    # Get the content being written\n    content = \"\"\n    if tool == \"Write\":\n        content = inp.get(\"content\", \"\")\n    elif tool == \"Edit\":\n        content = inp.get(\"new_string\", \"\")\n\n    # Block hardcoded API keys (OpenAI sk- format is common)\n    if re.search(r'[\"\\']sk-[A-Za-z0-9_-]{20,}[\"\\']', content):\n        print(\"BLOCKING: Attempted to hardcode an API key. \"\n              \"Secrets must come from environment variables. Use process.env instead.\",\n              file=sys.stderr)\n        return 2\n\n    # Block other hardcoded secrets (apiKey, token, password, etc.)\n    pattern = r'\\b(apiKey|api_key|accessToken|access_token|password|secret|token|bearer)\\b\\s*[:=]\\s*[\"\\']([^\"\\']+)[\"\\']'\n\n    for match in re.finditer(pattern, content, re.IGNORECASE):\n        # Extract the line containing this match\n        line_start = content.rfind('\\n', 0, match.start())\n        line_start = 0 if line_start == -1 else line_start + 1\n        line_end = content.find('\\n', match.end())\n        line_end = len(content) if line_end == -1 else line_end\n        line = content[line_start:line_end]\n\n        # Allow if reading from environment\n        if any(x in line for x in ['process.env', 'os.environ', 'os.getenv']):\n            continue\n\n        value = match.group(2)\n\n        # Allow short values (likely placeholders)\n        if len(value) < 8:\n            continue\n\n        # Allow obvious placeholder text\n        if any(x in value.lower() for x in ['example', 'your', 'placeholder', 'xxx']):\n            continue\n\n        print(\"BLOCKING: Attempted to hardcode a secret in source code. \"\n              \"Use environment variables (process.env) instead of hardcoded strings.\",\n              file=sys.stderr)\n        return 2\n\n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "sentinel_name": "self-improving-claude/block-hardcoded-secrets"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 0,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": null,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "imperative_stderr": null,
+            "rule_pattern": null,
+            "stdin_envelope": null
+          },
+          "mean": 8.0,
+          "degenerate": false,
+          "rules_present": null
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 8,
+          "error": null,
+          "strengths": [
+            "Correctly chooses PreToolUse with Write/Edit matcher to intercept content before it's written, directly addressing the path-glob-can't-catch-content gap",
+            "Specifically detects the sk-... OpenAI key pattern from the planted scenario and returns exit code 2 with a clear stderr message to block the tool call",
+            "Reads tool_input.content for Write and new_string for Edit, correctly handling both tool shapes"
+          ],
+          "weaknesses": [
+            "The regex requires sk- to be wrapped in quotes; a bare sk-... literal or one inside a template literal/backtick would slip through",
+            "Skips any path containing '.env' (e.g., '.environment.ts', 'env.config.ts'), which is an over-broad bypass",
+            "Does not handle MultiEdit, and the generic secret pattern's placeholder allowlist ('your', 'xxx') could let real keys through if the surrounding variable name matches"
+          ],
+          "reasoning": "The proposal directly targets the planted problem with the right event, matcher, and a content scan that would catch the canonical quoted sk-... literal in src/config.ts. The exit-code-2 + stderr blocking contract is correct. Minor robustness gaps (unquoted secrets, MultiEdit, loose .env path skip) prevent a perfect score but the core scenario is solved."
+        }
+      ],
+      "installed": [
+        false
+      ],
+      "fired": [
+        null
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "hooks": [
+            {
+              "name": "self-improving-claude/block-hardcoded-secrets",
+              "event": "PreToolUse",
+              "matcher": "Write(*) | Edit(*)",
+              "script": ".claude/hooks/block-hardcoded-secrets.py"
+            }
+          ]
+        },
+        "hook_files": [
+          "__pycache__",
+          "block-hardcoded-secrets.py"
+        ],
+        "permission_rules": []
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "012-one-off-bug-no-guardrail",
+      "expect_no_proposal": true,
+      "restraint": 0,
+      "echo": [
+        {
+          "form": "command-hook",
+          "event": "PostToolUse",
+          "matcher": "Edit",
+          "rationale": "Catches undefined variable references (like the undefined `total` variable in the invoice bug) by running pyflakes on Python files after Edit and surfacing errors to Claude with action-forcing language; PostToolUse is needed because errors only appear after the edit is applied.",
+          "script_lang": "python",
+          "script": "#!/usr/bin/env python3\nimport json, sys, subprocess\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n\n    tool = ev.get(\"tool_name\", \"\")\n    if tool != \"Edit\":\n        return 0\n\n    inp = ev.get(\"tool_input\") or {}\n    fpath = inp.get(\"file_path\", \"\")\n    if not fpath.endswith(\".py\"):\n        return 0\n\n    try:\n        result = subprocess.run(\n            [\"python\", \"-m\", \"pyflakes\", fpath],\n            capture_output=True,\n            text=True,\n            timeout=5\n        )\n        if result.stdout or result.stderr:\n            output = (result.stdout + result.stderr).strip()\n            if output:\n                print(f\"Pyflakes found issues in {fpath}:\", file=sys.stderr)\n                print(output, file=sys.stderr)\n                print(\"\\nFIX EACH PYFLAKES ERROR ABOVE. Do not stop until fixed.\", file=sys.stderr)\n    except Exception:\n        pass\n\n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/pyflakes-check-after-edit"
+        }
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "hooks": {
+            "PostToolUse": [
+              {
+                "matcher": "Edit",
+                "hooks": [
+                  {
+                    "name": "self-improving-claude/pyflakes-check-after-edit",
+                    "type": "command",
+                    "command": "python3 ${CLAUDE_PROJECT_DIR}/.claude/hooks/pyflakes-check-after-edit.py",
+                    "timeout": 10
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "hook_files": [
+          "pyflakes-check-after-edit.py"
+        ],
+        "permission_rules": []
+      },
+      "error": null
+    }
+  ],
+  "summary": {
+    "average_code": 9.0,
+    "average_model": 8.5,
+    "average_clean_rate": 1.0,
+    "install_rate": 0.5,
+    "fire_rate": null,
+    "average_restraint": 0.0,
+    "entries": [
+      {
+        "id": "002-block-env-reads",
+        "code_max": 10.0,
+        "code_mean": 10.0,
+        "model_max": 9,
+        "clean_rate": 1.0,
+        "n_proposals": 1,
+        "install_rate": 1.0
+      },
+      {
+        "id": "008-secret-in-source",
+        "code_max": 8.0,
+        "code_mean": 8.0,
+        "model_max": 8,
+        "clean_rate": 1.0,
+        "n_proposals": 1,
+        "install_rate": 0.0
+      }
+    ],
+    "restraint_entries": [
+      {
+        "id": "012-one-off-bug-no-guardrail",
+        "restraint": 0
+      }
+    ]
+  },
+  "summary_visible": null,
+  "summary_holdout": {
+    "average_code": 9.0,
+    "average_model": 8.5,
+    "average_clean_rate": 1.0,
+    "install_rate": 0.5,
+    "fire_rate": null,
+    "average_restraint": 0.0,
+    "entries": [
+      {
+        "id": "002-block-env-reads",
+        "code_max": 10.0,
+        "code_mean": 10.0,
+        "model_max": 9,
+        "clean_rate": 1.0,
+        "n_proposals": 1,
+        "install_rate": 1.0
+      },
+      {
+        "id": "008-secret-in-source",
+        "code_max": 8.0,
+        "code_mean": 8.0,
+        "model_max": 8,
+        "clean_rate": 1.0,
+        "n_proposals": 1,
+        "install_rate": 0.0
+      }
+    ],
+    "restraint_entries": [
+      {
+        "id": "012-one-off-bug-no-guardrail",
+        "restraint": 0
+      }
+    ]
+  }
+}

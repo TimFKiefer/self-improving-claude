@@ -44,6 +44,14 @@ Every proposal you draft must satisfy every item below before you show it to the
 
 13. **Fires on its own trigger (command-hooks).** Before showing the user, trace the hook against two stdin envelopes you construct from the chosen event + matcher: a *triggering* one and a *clean* one. The triggering envelope must reach `return 2` (with stderr); the clean envelope must reach `return 0`. A hook that can't be traced to block its own trigger and pass clean input silently no-ops once installed — the usual cause is reading `ev["tool"]`/`ev["args"]` instead of `tool_name`/`tool_input`, ignoring stdin, or a guard condition that never matches.
 
+14. **Loop-safe (terminates).** Trace the feedback path: hook output → the model's most likely responding tool call → does that call re-fire this hook with the same output? Per shape:
+    - **PostToolUse** whose stderr demands tool calls its own matcher would catch: the check must be *convergent* — the script recomputes the violating condition on every fire and exits 0 once clean, or fails only on NEW violations relative to a recorded baseline (pre-existing debt must not keep the check permanently red), or exempts the corrective action (early `return 0`), or the matcher excludes it. Criterion 12's imperative stderr is only shippable on a convergent check: "Do not stop until done" on a check that can never come back clean is an infinite loop, not enforcement.
+    - **PreToolUse** blocking stderr must name an alternative action (an off-ramp), and that alternative must not be blocked by this same hook or by an existing `permissions.deny` rule — otherwise the model retries variants of the blocked call forever. The alternative may be a non-tool-call action ("stop and ask the user") — that terminates by construction and needs no follow-up trace; do not invent a tool-call alternative just to have one.
+    - **Hooks that spawn `claude` or the Agent SDK**: a child that loads the same project settings (the default for `claude -p` in the project directory) re-fires the hook — a fork bomb. Set a sentinel env var when spawning and exit 0 at the top of the script when it's present; restricting the child's tools is supplementary only — `allowedTools` leaves the tool in the child's tool list and PreToolUse hooks fire on attempts before the permission check (only bare-name `disallowedTools` removal, or a PostToolUse-only matcher, makes tool restriction sufficient).
+    - **Stop / SubagentStop hooks** must exit 0 (allow stopping) when stdin `stop_hook_active` is `true`.
+
+    A failed trace is revisable within the preamble's retry cap (add a guard, re-trace); a hook that still fails after the cap is a drop or a re-form at Step 4 — never ship it hoping the model breaks the loop on its own.
+
 ## Disqualifiers (drop the candidate immediately)
 
 - The rule duplicates an existing entry (verified against `<existing_hooks>` / `<existing_permissions>`).

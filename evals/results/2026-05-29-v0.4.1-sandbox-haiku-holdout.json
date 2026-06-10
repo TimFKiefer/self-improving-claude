@@ -1,0 +1,289 @@
+{
+  "date": "2026-05-29T02:53:03Z",
+  "mode": "sandbox",
+  "proposer": "haiku",
+  "judge": "opus",
+  "effort": "default",
+  "holdout_mode": "holdout-only",
+  "skill_size": {
+    "chars_per_invocation": 57092,
+    "approx_tokens_per_invocation": 14273,
+    "breakdown": {
+      "procedure": 24231,
+      "preamble_max": 1759,
+      "references": 31102
+    }
+  },
+  "results": [
+    {
+      "id": "002-block-env-reads",
+      "trigger": "improve-init",
+      "proposals": [
+        {
+          "form": "permissions.deny",
+          "event": null,
+          "matcher": null,
+          "rationale": "Block reads of environment files to prevent accidental exposure of configuration secrets.",
+          "script_lang": null,
+          "script": null,
+          "prompt": null,
+          "rule": [
+            "Read(**/.env)",
+            "Read(**/.env.*)"
+          ],
+          "claude_md_line": null,
+          "sentinel_name": null
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": null,
+            "matcher_matches": null,
+            "script_parses": null,
+            "sentinel_format": null,
+            "rationale_keywords": 0,
+            "imperative_stderr": null,
+            "rule_pattern": 0,
+            "stdin_envelope": null
+          },
+          "mean": 3.3333333333333335,
+          "degenerate": false,
+          "rules_present": null
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 9,
+          "error": null,
+          "strengths": [
+            "Covers both the bare file via Read(**/.env) and all variants via Read(**/.env.*), correctly solving the gap the planted problem warns about (.env.local, .env.production)",
+            "Uses permissions.deny, which is the right declarative mechanism for blocking reads \u2014 no scripts or hooks needed",
+            "Rationale is clear and accurate about preventing exposure of configuration secrets"
+          ],
+          "weaknesses": [
+            "The two globs don't match dot-variants in the working-directory root in all glob engines (a leading '.env' with no path segment), though **/ typically covers nested and root in Claude Code's matcher",
+            "No coverage for case or whitespace edge cases, but these are negligible for the stated problem"
+          ],
+          "reasoning": "The proposal directly addresses the planted problem by pairing Read(**/.env) for the bare file with Read(**/.env.*) for all variants, which is exactly the distinction the problem calls out as missing from a bare glob. It uses the correct declarative form (permissions.deny) with an accurate rationale and no unnecessary scripting. This is a near-complete, correct solution."
+        }
+      ],
+      "installed": [
+        false
+      ],
+      "fired": [
+        null
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "permissions": {
+            "deny": [
+              "Read(**/.env)",
+              "Read(**/.env.*)"
+            ]
+          }
+        },
+        "hook_files": [],
+        "permission_rules": [
+          "Read(**/.env)",
+          "Read(**/.env.*)"
+        ]
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "008-secret-in-source",
+      "trigger": "improve",
+      "proposals": [
+        {
+          "form": "command-hook",
+          "event": "PreToolUse",
+          "matcher": "Write|Edit",
+          "rationale": "Detects common secret patterns (API keys, tokens, passwords) in source files and blocks writes; allows .env and similar secret-storage files. Prevents the incident where an OpenAI API key was hardcoded.",
+          "script_lang": "python3",
+          "script": "#!/usr/bin/env python3\nimport json\nimport sys\nimport re\nimport os\n\ndef is_secrets_file(path: str) -> bool:\n    \"\"\"Check if this file is allowed to contain secrets.\"\"\"\n    basename = os.path.basename(path)\n    allowed_secrets_files = {\n        '.env', '.env.local', '.env.example', '.env.test',\n        '.secrets', 'secrets.json', 'credentials.json',\n        '.aws/credentials', '.aws/config',\n        '*.pem', '*.key', '*.p8', '*.pfx', '*.jks'\n    }\n    for pattern in allowed_secrets_files:\n        if pattern.startswith('*.'):\n            if basename.endswith(pattern[1:]):\n                return True\n        elif basename == pattern or path.endswith('/' + pattern):\n            return True\n    return False\n\ndef contains_secret(content: str) -> tuple[bool, str]:\n    \"\"\"Check if content contains hardcoded secrets.\"\"\"\n    # Common secret patterns\n    patterns = [\n        (r'sk[-_]proj[-_][a-zA-Z0-9]{20,}', 'OpenAI API key'),\n        (r'sk[-_][a-zA-Z0-9]{20,}', 'API key'),\n        (r'pk[-_]live[-_][a-zA-Z0-9]{20,}', 'Stripe API key'),\n        (r'AKIA[0-9A-Z]{16}', 'AWS Access Key'),\n        (r'aws_secret_access_key\\s*=\\s*[^\\s]+', 'AWS Secret Key'),\n        (r'api[_-]?key\\s*[=:]\\s*[\\'\\\"]?[a-zA-Z0-9_\\-]{20,}[\\'\\\"]?', 'API key assignment'),\n        (r'password\\s*[=:]\\s*[\\'\\\"]([^\\'\\\"]){6,}[\\'\\\"]', 'Password in plaintext'),\n        (r'token\\s*[=:]\\s*[\\'\\\"]([a-zA-Z0-9_\\-\\\\.]{20,})[\\'\\\"]', 'Token in plaintext'),\n        (r'authorization\\s*[=:]\\s*Bearer\\s+[a-zA-Z0-9_\\-\\\\.]+', 'Bearer token'),\n        (r'secret\\s*[=:]\\s*[\\'\\\"]([^\\'\\\"]){10,}[\\'\\\"]', 'Secret value'),\n        (r'private[_-]?key\\s*[=:]\\s*[\\'\\\"]', 'Private key'),\n        (r'BEGIN RSA PRIVATE KEY', 'RSA Private Key'),\n        (r'BEGIN OPENSSH PRIVATE KEY', 'OpenSSH Private Key'),\n    ]\n\n    for pattern, secret_type in patterns:\n        if re.search(pattern, content, re.IGNORECASE):\n            return True, secret_type\n    return False, \"\"\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n\n    tool = ev.get(\"tool_name\", \"\")\n    inp = ev.get(\"tool_input\") or {}\n\n    # Only apply to Write and Edit tools\n    if tool not in (\"Write\", \"Edit\"):\n        return 0\n\n    file_path = inp.get(\"file_path\", \"\")\n    if not file_path:\n        return 0\n\n    # Skip files that are allowed to contain secrets\n    if is_secrets_file(file_path):\n        return 0\n\n    # Get the content being written\n    new_string = inp.get(\"new_string\", \"\")\n    if not new_string:\n        return 0\n\n    # Check for secrets\n    has_secret, secret_type = contains_secret(new_string)\n    if has_secret:\n        msg = (\n            f\"BLOCKED: Attempted to write {secret_type} to {file_path}\\n\"\n            f\"Secrets must come from environment variables (process.env, os.environ, etc.)\\n\"\n            f\"See CLAUDE.md: 'Secrets come from the environment. Never hardcode API keys, tokens, or passwords in source.'\"\n        )\n        print(msg, file=sys.stderr)\n        return 2\n\n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "prompt": null,
+          "rule": "{\"name\":\"self-improving-claude/prevent-hardcoded-secrets\",\"matcher\":\"Write|Edit\",\"type\":\"command\",\"script\":\"python3\",\"script_path\":\".claude/hooks/prevent-hardcoded-secrets.py\"}",
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/prevent-hardcoded-secrets"
+        }
+      ],
+      "code_grades": [
+        {
+          "checks": {
+            "form_matches": 10,
+            "event_matches": 10,
+            "matcher_matches": 10,
+            "script_parses": 0,
+            "sentinel_format": 10,
+            "rationale_keywords": 10,
+            "imperative_stderr": null,
+            "rule_pattern": null,
+            "stdin_envelope": 10
+          },
+          "mean": 8.571428571428571,
+          "degenerate": false,
+          "rules_present": null
+        }
+      ],
+      "model_grades": [
+        {
+          "valid": true,
+          "score": 6,
+          "error": null,
+          "strengths": [
+            "Correct form and approach: a PreToolUse command-hook on Write|Edit that scans content and blocks via exit code 2 \u2014 exactly the content-based mechanism the planted problem calls for, which a path glob cannot do",
+            "Pattern set explicitly includes the OpenAI `sk[-_][a-zA-Z0-9]{20,}` key shape that matches the planted `sk-...` literal, and includes an allowlist for legitimate secret-storage files (.env, *.pem) to limit false positives",
+            "Clear, actionable block message that points to remediation (read from environment) and references the policy"
+          ],
+          "weaknesses": [
+            "Critical bug: the script reads only `new_string` from tool_input and returns 0 (allow) when it's empty. The Write tool delivers content in the `content` field, not `new_string`, so a `Write` of src/config.ts with the hardcoded key would pass through unblocked \u2014 and the planted incident describes Claude *writing* the file, the very case most likely to be missed",
+            "Only the Edit path (new_string) is actually scanned; coverage of the described scenario depends entirely on the tool happening to be Edit rather than Write",
+            "Some regexes risk false positives (broad password/secret assignment patterns), though this is minor next to the missed-content gap"
+          ],
+          "reasoning": "The proposal nails the form, event, matcher, and content-scanning strategy, with good secret patterns and a sensible allowlist. However, it inspects only `new_string` and ignores Write's `content` field, so it would likely fail to block the exact planted incident (a hardcoded key written into src/config.ts via Write), undermining the core goal even though it would catch the Edit variant."
+        }
+      ],
+      "installed": [
+        true
+      ],
+      "fired": [
+        false
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "hooks": {
+            "PreToolUse": [
+              {
+                "name": "self-improving-claude/prevent-hardcoded-secrets",
+                "matcher": "Write|Edit",
+                "type": "command",
+                "script": "python3",
+                "script_path": ".claude/hooks/prevent-hardcoded-secrets.py"
+              }
+            ]
+          }
+        },
+        "hook_files": [
+          "__pycache__",
+          "prevent-hardcoded-secrets.py"
+        ],
+        "permission_rules": []
+      },
+      "echo_valid": true,
+      "error": null
+    },
+    {
+      "id": "012-one-off-bug-no-guardrail",
+      "expect_no_proposal": true,
+      "restraint": 0,
+      "echo": [
+        {
+          "form": "command-hook",
+          "event": "PostToolUse",
+          "matcher": "Edit(*.py) | Write(*.py)",
+          "rationale": "Detect undefined variable references and syntax errors in Python files after edits to prevent bugs like `grand_total = total + tax` (undefined variable `total`); PostToolUse enables deterministic linter check without blocking the edit, surfacing errors so Claude can fix them immediately.",
+          "script_lang": "python",
+          "script": "import json, sys, subprocess, os\n\ndef main():\n    try:\n        ev = json.load(sys.stdin)\n    except Exception:\n        return 0\n\n    tool = ev.get(\"tool_name\", \"\")\n    inp = ev.get(\"tool_input\") or {}\n    file_path = inp.get(\"file_path\", \"\")\n\n    if not file_path or not file_path.endswith(\".py\"):\n        return 0\n\n    if not os.path.exists(file_path):\n        return 0\n\n    # Try pyflakes (detects undefined variables)\n    try:\n        result = subprocess.run(\n            [\"python\", \"-m\", \"pyflakes\", file_path],\n            capture_output=True,\n            timeout=5,\n            text=True\n        )\n        if result.stdout:\n            print(f\"REQUIRED FOLLOW-UP: Fix code issues detected:\\n{result.stdout}\", file=sys.stderr)\n            return 2\n    except (FileNotFoundError, subprocess.TimeoutExpired):\n        # Fall back to py_compile\n        try:\n            subprocess.run(\n                [\"python\", \"-m\", \"py_compile\", file_path],\n                capture_output=True,\n                check=True,\n                timeout=5\n            )\n        except subprocess.CalledProcessError as e:\n            error = e.stderr.decode() if e.stderr else (e.stdout.decode() if e.stdout else \"Syntax error\")\n            print(f\"REQUIRED FOLLOW-UP: Fix Python syntax errors:\\n{error}\", file=sys.stderr)\n            return 2\n        except Exception:\n            pass\n    except Exception:\n        pass\n\n    return 0\n\nif __name__ == \"__main__\":\n    sys.exit(main())",
+          "prompt": null,
+          "rule": null,
+          "claude_md_line": null,
+          "sentinel_name": "self-improving-claude/detect-undefined-vars"
+        }
+      ],
+      "written": {
+        "settings_parses": true,
+        "settings": {
+          "hooks": [
+            {
+              "event": "PostToolUse",
+              "matcher": "Edit(*.py) | Write(*.py)",
+              "type": "command",
+              "script_path": ".claude/hooks/check-python-syntax.py",
+              "name": "self-improving-claude/detect-undefined-vars"
+            }
+          ]
+        },
+        "hook_files": [
+          "check-python-syntax.py"
+        ],
+        "permission_rules": []
+      },
+      "error": null
+    }
+  ],
+  "summary": {
+    "average_code": 5.9523809523809526,
+    "average_model": 7.5,
+    "average_clean_rate": 0.5,
+    "install_rate": 0.5,
+    "fire_rate": 0.0,
+    "average_restraint": 0.0,
+    "entries": [
+      {
+        "id": "002-block-env-reads",
+        "code_max": 3.3333333333333335,
+        "code_mean": 3.3333333333333335,
+        "model_max": 9,
+        "clean_rate": 0.0,
+        "n_proposals": 1,
+        "install_rate": 0.0
+      },
+      {
+        "id": "008-secret-in-source",
+        "code_max": 8.571428571428571,
+        "code_mean": 8.571428571428571,
+        "model_max": 6,
+        "clean_rate": 1.0,
+        "n_proposals": 1,
+        "install_rate": 1.0
+      }
+    ],
+    "restraint_entries": [
+      {
+        "id": "012-one-off-bug-no-guardrail",
+        "restraint": 0
+      }
+    ]
+  },
+  "summary_visible": null,
+  "summary_holdout": {
+    "average_code": 5.9523809523809526,
+    "average_model": 7.5,
+    "average_clean_rate": 0.5,
+    "install_rate": 0.5,
+    "fire_rate": 0.0,
+    "average_restraint": 0.0,
+    "entries": [
+      {
+        "id": "002-block-env-reads",
+        "code_max": 3.3333333333333335,
+        "code_mean": 3.3333333333333335,
+        "model_max": 9,
+        "clean_rate": 0.0,
+        "n_proposals": 1,
+        "install_rate": 0.0
+      },
+      {
+        "id": "008-secret-in-source",
+        "code_max": 8.571428571428571,
+        "code_mean": 8.571428571428571,
+        "model_max": 6,
+        "clean_rate": 1.0,
+        "n_proposals": 1,
+        "install_rate": 1.0
+      }
+    ],
+    "restraint_entries": [
+      {
+        "id": "012-one-off-bug-no-guardrail",
+        "restraint": 0
+      }
+    ]
+  }
+}

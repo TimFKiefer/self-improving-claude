@@ -89,6 +89,26 @@ Hook entries within an event array each carry a `matcher` (tool name, `|`-separa
 - `2` — block (PreToolUse) or feed-stderr-back-to-Claude (PostToolUse). Whatever you wrote to stderr becomes Claude's explanation.
 - Anything else — non-blocking error.
 
+## Recursion guards (loop-safety)
+
+A hook script's own side effects don't fire hooks — only *Claude's* tool calls do. Loops enter through the feedback path: hook output → the model reacts with a tool call → the same hook fires again. Check every draft against the four loop shapes (full rationale: the project's `docs/knowledge/hooks-and-sdk.md` §10):
+
+| Loop shape | How it starts | Required guard |
+|---|---|---|
+| PostToolUse echo | stderr demands an action that re-matches the hook's own matcher | Convergent check: recompute the violating condition each fire, exit 0 once clean — or fail only on NEW violations vs. a recorded baseline (pre-existing debt must not keep the check red), or exempt the corrective path (early return 0), or narrow the matcher so the fix falls outside it |
+| PreToolUse retry | blocking stderr names no viable alternative; the model retries variants | stderr names an off-ramp ("run X instead") that does NOT match the same guard or an existing `permissions.deny` rule |
+| Sub-agent fork bomb | hook spawns `claude`/the Agent SDK; a child that loads the same settings re-fires the hook | sentinel env var set when spawning, hook exits 0 when it's present (mandatory — `allowedTools` does NOT stop PreToolUse matchers: hooks fire on attempted calls before the permission check; tool restriction helps only for PostToolUse matchers or bare-name `disallowedTools` removal) |
+| Stop continuation | Stop hook forces continuation, fires again on the next stop attempt | exit 0 when stdin `stop_hook_active` is `true` — mandatory for every Stop/SubagentStop hook |
+
+The two-question draft check — answer it BEFORE writing the script body:
+
+1. What tool call will the model most likely make in response to this hook's output?
+2. Does that call match this hook's matcher AND re-produce the same output?
+
+Yes + yes with nothing converging = an infinite loop, not a guardrail. Criterion 12 (imperative stderr) and loop-safety are a pair: "Do not stop until done" on a check that can never come back clean traps the model — imperative voice is only shippable on a convergent check.
+
+Last-resort circuit breaker — a backstop, never the guard itself (the counter alone does not satisfy criterion 14, and a counter-only hook fails Step 7's follow-up trace by construction: every fire below N re-reaches return 2 with the same stderr). Combine it with one of the guards above: persist a per-session fire counter in a state file and exit 0 after N fires on the same condition — it bounds the damage when the convergence reasoning was wrong; it does not replace that reasoning. For Stop hooks, also say the bound in the stderr ("fix these before stopping, or the next stop attempt will be allowed through") so the model knows the demand is finite.
+
 ## Portable paths
 
 - `${CLAUDE_PLUGIN_ROOT}` — the plugin's install directory. Use this for scripts shipped *by* the plugin (e.g. our telemetry hook).

@@ -345,7 +345,42 @@ Same as the CLI: custom system prompts, MCP servers, **hooks**, subagents, sessi
 
 ---
 
-## 10. Implications for `self-improving-claude`
+## 10. Recursion and feedback loops — designing hooks that terminate
+
+A hook script's own side effects (writing files, running formatters) do **not** fire hooks — hooks intercept only *Claude's* tool calls. Loops enter through the **feedback path**: hook output → Claude reacts with a tool call → that call matches the same hook → it fires again. Four loop shapes, each with a required guard:
+
+### Loop A — PostToolUse echo loop
+
+A `PostToolUse` hook on `Write|Edit` emits exit-2 stderr demanding edits; the demanded edits match `Write|Edit` again. If the check is not **convergent** — i.e. the stderr only fires while the violating condition persists, and the demanded action actually clears it — the loop never exits. Imperative stderr (rubric criterion 12, "Do not stop until done") makes a non-convergent hook *worse*, not better: the imperative forbids the model from breaking out. Canonical failure: a matcher-`Write|Edit` hook demanding "update the changelog" fires again on the changelog edit itself, demanding a changelog entry for the changelog entry.
+
+Guards (any one suffices):
+
+1. **Condition-gated stderr** — recompute the violating condition on every fire and exit 0 once it's clean (e.g. re-run the grep/type-check and emit only if hits remain).
+2. **Baseline delta** — record the pre-existing state (e.g. the type-error list at session start) and fail only on NEW violations relative to it. Without this, pre-existing debt keeps the check permanently red and the demanded fix can never converge — the most common way an otherwise well-meant type-check/lint hook becomes a loop.
+3. **Corrective-path exemption** — early `return 0` when `tool_input` *is* the corrective action (e.g. exempt edits to the changelog file the hook demands).
+4. **Narrower matcher** — scope the matcher so the corrective action falls outside it.
+
+Last-resort circuit breaker (a supplement to one of the guards above, never a substitute): a per-session fire-count cap — persist a counter in a state file and exit 0 after N fires on the same condition. This is the hook-land analogue of an agent harness's hard step cap; it bounds the damage when the convergence reasoning was wrong — it does not replace that reasoning.
+
+### Loop B — PreToolUse retry loop
+
+A blocking hook whose stderr names no viable alternative leaves the model retrying variants of the blocked call: block → retry → block. Worse, stderr that recommends an action which the same hook (or an existing `permissions.deny` rule) *also* blocks wedges the session entirely. Guard: blocking stderr must name an off-ramp ("run `pnpm db:migrate:new` instead"), and that off-ramp must be traced to NOT match the same guard or any existing deny rule.
+
+### Loop C — sub-agent fork bomb
+
+A hook that spawns Claude (Agent SDK, §9, or `claude -p`) can create a child session that loads the same project settings — including the hook itself (`claude -p` run in the project directory does this by default; the SDK does when configured to load settings). The child's tool calls then re-fire the hook, which spawns a grandchild, and so on. Because inheritance depends on spawn configuration that's easy to get wrong, the guard is mandatory either way: set a sentinel env var when spawning (e.g. `MY_REVIEW_HOOK_ACTIVE=1`) and exit 0 at the top of the hook when it's present. Tool restriction is defense-in-depth, not a substitute: `allowedTools` is a permission allowlist, not tool removal — the matched tool stays in the child's tool list, and PreToolUse hooks fire on attempted calls *before* the permission check, so even an attempt that permissions would deny re-fires the hook. Restricting tools breaks the loop only for PostToolUse matchers (a denied tool never runs, so PostToolUse never fires) or when a bare-name `disallowedTools` entry removes every matcher-matched tool from the child's context entirely.
+
+### Loop D — Stop-hook continuation loop
+
+A `Stop` hook that forces continuation fires again when the model next tries to stop. The Stop stdin carries `stop_hook_active` (§8) — `true` means the current turn is already running because a Stop hook forced it; the hook MUST exit 0 (allow stopping) in that case. Same for `SubagentStop`. (Also documented in `plugins-and-skills.md`.) Best practice: say so in the stderr — "fix these before stopping, or the next stop attempt will be allowed through" — so the model knows the demand is bounded and doesn't thrash.
+
+### The pre-install test
+
+Loops A and B are catchable before installation with one simulation: construct the tool call the model would most likely make *in response to* the hook's output, and trace it through the hook. If it re-triggers the same output and nothing has converged, the artifact is an infinite loop, not a guardrail.
+
+---
+
+## 11. Implications for `self-improving-claude`
 
 Distilling everything above into design implications:
 
@@ -358,3 +393,4 @@ Distilling everything above into design implications:
 7. **Stdin parsing in generated hooks.** Generated scripts must read JSON from stdin and consult `tool_input` (Pre) or `tool_input` + `tool_response` (Post). Helper template suggested: each generated hook starts with the same stdin-reading boilerplate (Node or Python), then branches on tool name.
 8. **Combine hooks with `permissions.deny` where appropriate.** For uniform file-path protection across all tools, `permissions.deny` is cheaper and more reliable than per-tool hooks. The plugin should know when to prefer one over the other.
 9. **Defensive design for blocked tools.** Exit code 2 + stderr message. The stderr text becomes Claude's explanation — generated messages should be specific and actionable ("Don't edit `src/migrations/*.sql` directly — run `pnpm db:migrate:new` instead.").
+10. **Loop-safety first (§10).** Before drafting any Pre/PostToolUse hook body, trace the feedback path: does the corrective action the hook demands (or the alternative its block message names) re-fire the same hook non-convergently? Generated hooks must carry one of the §10 guards; SDK-spawning hooks need the sentinel-env guard; Stop hooks must honor `stop_hook_active`. A hook that still fails §10's pre-install test after revision is dropped, never shipped.

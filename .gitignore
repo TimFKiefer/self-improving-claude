@@ -20,6 +20,10 @@ __pycache__/
 scratch/
 tmp/
 
+# Plugin fast state (per-machine telemetry/feedback/preferences — never published)
+.claude/self-improving-claude/
+.claude/settings.local.json
+
 # Auto-loop audit dirs (per-run, local artifacts)
 prompt-lab/auto-runs/
 
